@@ -1,0 +1,24 @@
+default: embedding
+clients:
+  embedding:
+    type: embedding
+    similarity_metric: cosine
+    top_k: 5
+  bm25:
+    type: bm25
+    k1: 1.5
+    b: 0.75
+    top_k: 5
+  hybrid:
+    type: hybrid
+    strategy: weighted  # weighted 或 rrf
+    normalization: minmax  # minmax, zscore, softmax
+    weights: [0.7, 0.3]  # embedding, bm25
+    retrievers:
+      - type: embedding
+        similarity_metric: cosine
+        top_k: 5
+      - type: bm25
+        k1: 1.5
+        b: 0.75
+        top_k: 5 

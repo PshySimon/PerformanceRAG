@@ -1,0 +1,6 @@
+# file loader
+type: file
+path: /Users/caixiaomeng/Projects/Python/EasyRAG/data/format_data_with_img
+file_types: [".md", ".txt"]
+
+

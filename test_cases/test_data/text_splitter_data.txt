@@ -1,0 +1,96 @@
+Linux性能分析工具Perf简介
+
+介绍
+Perf是一个基于Linux 2.6 +系统的分析工具，它抽象了在Linux中性能度量中CPU的硬件差异，提供一个简单的命令行界面。Perf基于最新版本Linux内核的perf_events接口。这篇文章通过示例展示了Perf工具的使用。
+
+命令
+Perf工具提供了一组丰富的命令来收集和分析性能和跟踪数据。命令行的用法与git类似，通过一个通用的命令Perf，实现了一组子命令: stat, record, report, annotate, script, bench等。
+
+支持的命令列表:
+perf usage: perf [--version] [--help] COMMAND [ARGS]
+
+The most commonly used perf commands are:
+annotate        Read perf.data (created by perf record) and display annotated code
+archive         Create archive with object files with build-ids found in perf.data file
+bench           General framework for benchmark suites
+buildid-cache   Manage build-id cache.
+buildid-list    List the buildids in a perf.data file
+diff            Read two perf.data files and display the differential profile
+inject          Filter to augment the events stream with additional information
+kmem            Tool to trace/measure kernel memory(slab) properties
+kvm             Tool to trace/measure kvm guest os
+list            List all symbolic event types
+lock            Analyze lock events
+probe           Define new dynamic tracepoints
+record          Run a command and record its profile into perf.data
+report          Read perf.data (created by perf record) and display the profile
+sched           Tool to trace/measure scheduler properties (latencies)
+script          Read perf.data (created by perf record) and display trace output
+stat            Run a command and gather performance counter statistics
+top             System profiling tool.
+
+硬件事件
+PMU硬件事件取决与特定的CPU，由CPU供应商提供文档。如果将Perf工具与libpfm4库链接，则可以提供事件的一些简短描述。有关Intel和AMD处理器的PMU硬件事件的列表，请参阅英特尔PMU事件表：手册的附录A。
+
+软件事件
+Perf还支持一组通用软件事件，这些事件不依赖于硬件，由内核实现。软件事件包括：
+cpu-clock        [Software event]
+task-clock       [Software event]
+page-faults      [Software event]
+context-switches [Software event]
+cpu-migrations   [Software event]
+minor-faults     [Software event]
+major-faults     [Software event]
+alignment-faults [Software event]
+emulation-faults [Software event]
+
+缓存事件
+缓存事件是硬件事件，但通常由内核以软件事件的形式提供，因为硬件不支持缓存事件。缓存事件包括：
+L1-dcache-loads                                [Hardware cache event]
+L1-dcache-load-misses                          [Hardware cache event]
+L1-dcache-stores                               [Hardware cache event]
+L1-dcache-store-misses                         [Hardware cache event]
+L1-dcache-prefetches                           [Hardware cache event]
+L1-dcache-prefetch-misses                      [Hardware cache event]
+L1-icache-loads                                [Hardware cache event]
+L1-icache-load-misses                          [Hardware cache event]
+L1-icache-prefetches                           [Hardware cache event]
+L1-icache-prefetch-misses                      [Hardware cache event]
+LLC-loads                                       [Hardware cache event]
+LLC-load-misses                                [Hardware cache event]
+LLC-stores                                      [Hardware cache event]
+LLC-store-misses                               [Hardware cache event]
+LLC-prefetch-misses                            [Hardware cache event]
+dTLB-loads                                      [Hardware cache event]
+dTLB-load-misses                               [Hardware cache event]
+dTLB-stores                                     [Hardware cache event]
+dTLB-store-misses                              [Hardware cache event]
+dTLB-prefetches                                [Hardware cache event]
+dTLB-prefetch-misses                           [Hardware cache event]
+iTLB-loads                                      [Hardware cache event]
+iTLB-load-misses                               [Hardware cache event]
+branch-loads                                    [Hardware cache event]
+branch-load-misses                             [Hardware cache event]
+
+使用模式
+Perf支持多种使用模式，包括per-thread、per-process、per-cpu和per-system。在per-thread模式下，只监控指定的线程。计数和采样只在该线程上合计。在per-process模式下，进程中的所有线程都被监控。计数和采样在进程级别被合计。在per-cpu模式下，指定处理器上所有线程都被监控。计数和采样在每个CPU上合计。
+
+性能分析示例
+以下是一个使用perf进行性能分析的示例：
+
+1. 使用perf stat收集性能计数器统计信息：
+perf stat -B -ecycles:u,instructions:u -a dd if=/dev/zero of=/dev/null count=2000000
+
+2. 使用perf record收集样本：
+perf record -a -g -e cycles sleep 10
+
+3. 使用perf report查看报告：
+perf report
+
+4. 使用perf annotate查看注释代码：
+perf annotate
+
+5. 使用perf script查看脚本输出：
+perf script
+
+这些命令提供了强大的性能分析功能，帮助开发者识别性能瓶颈并优化代码。 

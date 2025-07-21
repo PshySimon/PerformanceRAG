@@ -1,0 +1,5 @@
+default: embedding
+clients:
+  embedding:
+    type: embedding
+    # 可扩展更多参数 

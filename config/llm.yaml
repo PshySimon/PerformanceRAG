@@ -1,0 +1,16 @@
+default: zhipu
+clients:
+  openai:
+    type: openai
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "https://api.openai.com/v1"
+    temperature: 0.9
+    max_tokens: 4096
+  zhipu:
+    type: zhipu
+    model: "glm-4"
+    api_key: "a2dad7daa69c48418d0dd0b3df939783.WJaSrMGkYP7zUPLx"
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    temperature: 0.9
+    max_tokens: 4096

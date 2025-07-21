@@ -1,0 +1,63 @@
+naive_rag:
+  loader:
+    type: file
+    path: /Users/caixiaomeng/Projects/Python/EasyRAG/data/format_data_with_img/
+    file_types: [".md", ".txt", ".html"]
+  splitter:
+    type: hierarchical
+    chunk_sizes: [512, 256]
+    chunk_overlap: 20
+    include_metadata: true
+    include_prev_next_rel: true
+  index:
+    type: embedding
+  retriever:
+    type: hybrid  # 可选: embedding, bm25, hybrid
+    strategy: weighted  # weighted 或 rrf
+    normalization: minmax  # minmax, zscore, softmax
+    weights: [0.7, 0.3]  # embedding, bm25
+    retrievers:
+      - type: embedding
+        similarity_metric: cosine
+        top_k: 5
+      - type: bm25
+        k1: 1.5
+        b: 0.75
+        top_k: 5
+  llm:
+    use: true
+
+advanced_rag:
+  loader:
+    type: file
+    path: /Users/caixiaomeng/Projects/Python/EasyRAG/data/format_data_with_img/
+    # path: ./test_cases/test_data/
+    file_types: [".md", ".txt", ".html"]
+  splitter:
+    type: hierarchical
+    chunk_sizes: [512, 256]
+    chunk_overlap: 20
+    include_metadata: true
+    include_prev_next_rel: true
+  index:
+    type: embedding
+  retriever:
+    type: hybrid  # 可选: embedding, bm25, hybrid
+    strategy: weighted  # weighted 或 rrf
+    normalization: minmax  # minmax, zscore, softmax
+    weights: [0.7, 0.3]  # embedding, bm25
+    retrievers:
+      - type: embedding
+        similarity_metric: cosine
+        top_k: 5
+      - type: bm25
+        k1: 1.5
+        b: 0.75
+        top_k: 5
+  reranker:
+    type: embedding
+  query_expansion:
+    type: multi_query
+    n: 3
+  llm:
+    use: true 

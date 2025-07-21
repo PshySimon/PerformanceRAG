@@ -1,0 +1,8 @@
+default: llm
+clients:
+  llm:
+    type: llm
+    # 可扩展更多参数，如llm_config
+  embedding:
+    type: embedding
+    model_name: bert-base-uncased 

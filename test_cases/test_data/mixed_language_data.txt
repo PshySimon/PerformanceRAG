@@ -1,0 +1,41 @@
+Multi-language Performance Analysis Guide
+多语言性能分析指南
+
+Introduction 介绍
+Performance analysis is crucial for system optimization. 性能分析对系统优化至关重要。
+We need to understand both English and Chinese documentation. 我们需要理解中英文文档。
+
+Hardware Events 硬件事件
+CPU cycles are fundamental performance metrics. CPU周期是基本的性能指标。
+Memory access patterns affect overall performance. 内存访问模式影响整体性能。
+Cache misses indicate performance bottlenecks. 缓存未命中表示性能瓶颈。
+
+Software Events 软件事件
+Context switches occur frequently in multi-threaded applications. 上下文切换在多线程应用中频繁发生。
+Page faults indicate memory pressure. 页面错误表示内存压力。
+System calls are expensive operations. 系统调用是昂贵的操作。
+
+Analysis Tools 分析工具
+Perf is the primary tool for Linux performance analysis. Perf是Linux性能分析的主要工具。
+Top provides real-time system monitoring. Top提供实时系统监控。
+Htop offers an improved interface over top. Htop提供比top更好的界面。
+
+Best Practices 最佳实践
+Always start with a baseline measurement. 始终从基线测量开始。
+Monitor both user and kernel space. 同时监控用户空间和内核空间。
+Use appropriate sampling rates. 使用适当的采样率。
+
+Common Issues 常见问题
+High CPU usage may indicate inefficient algorithms. 高CPU使用率可能表示算法效率低下。
+Memory leaks cause gradual performance degradation. 内存泄漏导致性能逐渐下降。
+I/O bottlenecks limit overall throughput. I/O瓶颈限制整体吞吐量。
+
+Optimization Techniques 优化技术
+Profile before optimizing. 在优化之前进行性能分析。
+Focus on the biggest bottlenecks first. 首先关注最大的瓶颈。
+Measure the impact of changes. 测量变更的影响。
+
+Conclusion 结论
+Performance analysis requires both tools and understanding. 性能分析需要工具和理解。
+Continuous monitoring is essential for production systems. 持续监控对生产系统至关重要。
+Document your findings for future reference. 记录发现以供将来参考。 
