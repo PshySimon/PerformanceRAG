@@ -8,7 +8,7 @@ clients:
   zhipu:
     type: zhipu
     model: "embedding-2"
-    api_key: ""
+    api_key: "a2dad7daa69c48418d0dd0b3df939783.WJaSrMGkYP7zUPLx"
     timeout: 5.0
   hf:
     type: hf
