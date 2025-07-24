@@ -50,6 +50,7 @@ advanced_rag:
       - type: embedding
         similarity_metric: cosine
         top_k: 5
+        # embedding_type: bge_embedding 
       - type: bm25
         k1: 1.5
         b: 0.75
@@ -60,4 +61,47 @@ advanced_rag:
     type: multi_query
     n: 3
   llm:
-    use: true 
+    use: true
+
+# 在文件末尾添加
+es_rag:
+  es:
+    host: "https://localhost:9200"
+    index: "performance-rag-index"
+    user: "elastic"
+    pass: "9YdHb9IIpjTbEX7IsTjc"
+  # 添加数据源配置（用于构建BM25索引）
+  loader:
+    type: file
+    path: /Users/caixiaomeng/Projects/Python/EasyRAG/data/format_data_with_img/  # 替换为你的文档路径
+    file_types: [".md", ".txt", ".html"]
+  splitter:
+    type: hierarchical
+    chunk_sizes: [512, 256]
+    chunk_overlap: 20
+    include_metadata: true
+    include_prev_next_rel: true
+  embedding:
+    type: "hf"
+  retriever:
+    type: "hybrid"  # 或 "bm25" 或 "embedding"
+    strategy: "weighted"
+    normalization: "minmax"
+    weights: [0.7, 0.3]
+    retrievers:
+      - type: "embedding"
+        similarity_metric: "cosine"
+        top_k: 5
+      - type: "bm25"
+        k1: 1.5
+        b: 0.75
+        top_k: 5
+  query_expansion:
+    type: "multi_query"
+    n: 3
+  llm:
+    use: true
+    model: "gpt-3.5-turbo"
+    num_queries: 3
+  llm:
+    use: true

@@ -1,15 +1,33 @@
-default: zhipu
+default: "hf"  # 默认使用的embedding客户端
+
 clients:
-  openai:
-    type: openai
-    model: "text-embedding-ada-002"
-    api_key: "${OPENAI_API_KEY}"
-    batch_size: 20
-  zhipu:
-    type: zhipu
-    model: "embedding-2"
-    api_key: "a2dad7daa69c48418d0dd0b3df939783.WJaSrMGkYP7zUPLx"
-    timeout: 5.0
   hf:
-    type: hf
-    model_name: "/Users/caixiaomeng/models/hf/bge-large-zh-v1.5"
+    type: "hf"
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"
+    device: "cpu"  # 或 "cuda" 如果有GPU
+    normalize_embeddings: true
+    batch_size: 32
+    max_length: 512
+
+  openai:
+    type: "openai"
+    model: "text-embedding-ada-002"
+    api_key: "your-openai-api-key"  # 或通过环境变量OPENAI_API_KEY设置
+    base_url: "https://api.openai.com/v1"
+    timeout: 60
+    max_retries: 3
+
+  bge_embedding:
+    type: "bge"
+    api_url: "http://localhost:8001/embeddings"
+    model_name: "bge-large-zh-v1.5"
+    timeout: 30
+    max_retries: 3
+
+  # 可以添加更多embedding客户端配置
+  local_embedding:
+    type: "hf"
+    model_name: "BAAI/bge-large-zh-v1.5"  # 中文embedding模型
+    device: "cpu"
+    normalize_embeddings: true
+    batch_size: 16

@@ -39,9 +39,11 @@ zhipuai==2.1.5.20241204
 # 其他常用
 requests==2.32.4
 beautifulsoup4==4.12.3
+rank-bm25==0.2.2
 
 # 可选：如用到 pdf/html/office 文档
 pdftext==0.3.20
 PyMuPDF==1.25.0
 openpyxl==3.1.5
 lxml==5.4.0
+elasticsearch==8.13.0

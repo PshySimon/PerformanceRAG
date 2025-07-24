@@ -1,0 +1,60 @@
+# BM25流水线配置
+components:
+  # 文档加载器
+  document_loader:
+    type: "loader"
+    name: "file"
+    config:
+      path: "./test_cases/test_data"
+      file_types: [".txt", ".md"]
+      encoding: "utf-8"
+      debug: true
+  
+  # 文档分割器
+  text_splitter:
+    type: "splitter"
+    name: "hierarchical"
+    config:
+      chunk_sizes: [512, 256]
+      chunk_overlap: 50
+      include_metadata: true
+      include_prev_next_rel: true
+      debug: true
+  
+  # BM25索引器
+  bm25_indexer:
+    type: "indexer"
+    name: "bm25"
+    config:
+      index_name: "full_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      storage_path: "./data/bm25_index"
+      auto_save: true
+      debug: true
+  
+  # BM25检索器
+  bm25_retriever:
+    type: "retriever"
+    name: "bm25"
+    config:
+      index_name: "full_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      top_k: 5
+      storage_path: "./data/bm25_index"
+      auto_load: true
+      similarity_threshold: 0.1
+      debug: true
+
+# 流程定义 - 分离索引和检索
+flow:
+  # 索引流程：文档加载 -> 分割 -> 索引
+  document_loader: ["text_splitter"]
+  text_splitter: ["bm25_indexer"]
+  bm25_indexer: []  # 索引完成后结束
+  # 检索流程：独立的检索器
+  bm25_retriever: []
+
+# 入口点
+entry_point: "document_loader"

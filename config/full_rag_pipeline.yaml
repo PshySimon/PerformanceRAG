@@ -1,0 +1,188 @@
+# 完整RAG流水线配置
+full_rag_pipeline:
+  # 组件定义
+  components:
+    # 文档加载器
+    document_loader:
+      type: "loader.file"
+      path: "./test_cases/test_data"
+      file_types: [".txt", ".md"]
+      encoding: "utf-8"
+      debug: true
+    
+    # 文档分割器
+    text_splitter:
+      type: "splitter.hierarchical"
+      chunk_sizes: [512, 256]
+      chunk_overlap: 50
+      include_metadata: true
+      include_prev_next_rel: true
+      debug: true
+    
+    # BM25索引器
+    bm25_indexer:
+      type: "indexer.bm25"
+      index_name: "full_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      storage_path: "./data/bm25_index"
+      auto_save: true
+      debug: true
+    
+    # BM25检索器
+    bm25_retriever:
+      type: "retriever.bm25"
+      index_name: "full_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      top_k: 5
+      storage_path: "./data/bm25_index"
+      auto_load: true
+      similarity_threshold: 0.1
+      debug: true
+  
+  # 流程定义
+  flow:
+    document_loader: ["text_splitter"]
+    text_splitter: ["bm25_indexer"]
+    bm25_indexer: ["bm25_retriever"]
+    bm25_retriever: []
+  
+  # 入口点
+  entry_point: "document_loader"
+
+# ES流水线配置（需要ES服务）
+es_rag_pipeline:
+  components:
+    # 文档加载器
+    document_loader:
+      type: "loader.file"
+      path: "./test_cases/test_data"
+      file_types: [".txt", ".md"]
+      encoding: "utf-8"
+      debug: true
+    
+    # 文档分割器
+    text_splitter:
+      type: "splitter.hierarchical"
+      chunk_sizes: [512, 256]
+      chunk_overlap: 50
+      include_metadata: true
+      include_prev_next_rel: true
+      debug: true
+    
+    # ES索引器
+    es_indexer:
+      type: "indexer.elasticsearch"
+      index_name: "full_pipeline_docs"
+      host: "localhost"
+      port: 9200
+      username: "elastic"
+      password: "your_password"
+      use_ssl: true
+      verify_certs: false
+      batch_size: 50
+      debug: true
+    
+    # ES检索器
+    es_retriever:
+      type: "retriever.elasticsearch"
+      index_name: "full_pipeline_docs"
+      host: "localhost"
+      port: 9200
+      username: "elastic"
+      password: "your_password"
+      use_ssl: true
+      verify_certs: false
+      search_type: "text"
+      top_k: 5
+      similarity_threshold: 0.1
+      debug: true
+  
+  flow:
+    document_loader: ["text_splitter"]
+    text_splitter: ["es_indexer"]
+    es_indexer: ["es_retriever"]
+    es_retriever: []
+  
+  entry_point: "document_loader"
+
+# 混合检索流水线配置
+hybrid_rag_pipeline:
+  components:
+    # 文档加载器
+    document_loader:
+      type: "loader.file"
+      path: "./test_cases/test_data"
+      file_types: [".txt", ".md"]
+      encoding: "utf-8"
+      debug: true
+    
+    # 文档分割器
+    text_splitter:
+      type: "splitter.hierarchical"
+      chunk_sizes: [512, 256]
+      chunk_overlap: 50
+      include_metadata: true
+      include_prev_next_rel: true
+      debug: true
+    
+    # BM25索引器
+    bm25_indexer:
+      type: "indexer.bm25"
+      index_name: "hybrid_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      storage_path: "./data/bm25_index"
+      auto_save: true
+      debug: true
+    
+    # ES索引器（用于向量检索）
+    es_indexer:
+      type: "indexer.elasticsearch"
+      index_name: "hybrid_pipeline_docs"
+      host: "localhost"
+      port: 9200
+      username: "elastic"
+      password: "your_password"
+      use_ssl: true
+      verify_certs: false
+      batch_size: 50
+      debug: true
+    
+    # BM25检索器
+    bm25_retriever:
+      type: "retriever.bm25"
+      index_name: "hybrid_pipeline_docs"
+      k1: 1.5
+      b: 0.75
+      top_k: 3
+      storage_path: "./data/bm25_index"
+      auto_load: true
+      debug: true
+    
+    # ES检索器
+    es_retriever:
+      type: "retriever.elasticsearch"
+      index_name: "hybrid_pipeline_docs"
+      host: "localhost"
+      port: 9200
+      username: "elastic"
+      password: "your_password"
+      use_ssl: true
+      verify_certs: false
+      search_type: "vector"
+      top_k: 3
+      embedding:
+        type: "hf"
+      debug: true
+  
+  flow:
+    document_loader: ["text_splitter"]
+    text_splitter: ["bm25_indexer", "es_indexer"]
+    bm25_indexer: ["bm25_retriever"]
+    es_indexer: ["es_retriever"]
+    bm25_retriever: []
+    es_retriever: []
+  
+  entry_point: "document_loader"

@@ -1,0 +1,57 @@
+name: "查询优化流水线"
+description: "对用户查询进行多种优化处理"
+
+components:
+  - name: "query_expansion"
+    type: "query"
+    subtype: "expansion"
+    config:
+      expansion_type: "multi_query"  # multi_query, hyde, rewrite
+      num_queries: 3
+      temperature: 0.7
+      max_retries: 3
+      debug: true
+
+  - name: "query_decomposition"
+    type: "query"
+    subtype: "decomposition"
+    config:
+      max_subqueries: 5
+      min_subqueries: 2
+      temperature: 0.5
+      debug: true
+
+  - name: "query_disambiguation"
+    type: "query"
+    subtype: "disambiguation"
+    config:
+      ambiguity_threshold: 0.7
+      context_window: 3
+      temperature: 0.3
+      debug: true
+
+  - name: "query_abstraction"
+    type: "query"
+    subtype: "abstraction"
+    config:
+      abstraction_level: "medium"  # low, medium, high
+      preserve_domain: true
+      temperature: 0.5
+      debug: true
+
+pipeline:
+  - type: "expansion"
+    name: "multi_query_expansion"
+    config:
+      expansion_type: "multi_query"
+      num_queries: 3
+
+  - type: "disambiguation"
+    name: "query_disambiguation"
+    config:
+      ambiguity_threshold: 0.6
+
+default_config:
+  temperature: 0.7
+  max_retries: 3
+  debug: false

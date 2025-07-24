@@ -1,0 +1,42 @@
+name: "重排流水线"
+description: "对检索结果进行重排优化"
+
+components:
+  - name: "llm_reranker"
+    type: "reranker"
+    subtype: "llm"
+    config:
+      top_k: 10
+      score_threshold: 0.0
+      method: "listwise"  # pairwise, listwise, pointwise
+      temperature: 0.3
+      max_retries: 3
+      debug: true
+
+  - name: "embedding_reranker"
+    type: "reranker"
+    subtype: "embedding"
+    config:
+      top_k: 10
+      score_threshold: 0.5
+      similarity_metric: "cosine"  # cosine, dot_product, euclidean
+      embedding_type: "hf"  # hf, openai
+      debug: true
+
+pipeline:
+  - type: "embedding"
+    name: "first_rerank"
+    config:
+      top_k: 20
+      similarity_metric: "cosine"
+
+  - type: "llm"
+    name: "final_rerank"
+    config:
+      top_k: 10
+      method: "listwise"
+
+default_config:
+  top_k: 10
+  score_threshold: 0.0
+  debug: false

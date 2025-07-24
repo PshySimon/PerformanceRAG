@@ -1,10 +1,13 @@
-from flask import Flask, request, Response
-from utils.rag.pipeline import create_pipeline
 import json
+import logging
+
+from flask import Flask, Response, request
+
+from utils.rag.pipeline import create_pipeline
 
 app = Flask(__name__)
-pipeline = create_pipeline("advanced_rag")
-
+pipeline = create_pipeline("es_rag")
+logging.basicConfig(level=logging.INFO)
 
 @app.route("/chat", methods=["POST"])
 def rag_endpoint():

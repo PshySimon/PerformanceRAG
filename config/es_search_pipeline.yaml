@@ -1,0 +1,49 @@
+# ES搜索流水线配置
+components:
+  # ES检索器
+  es_retriever:
+    type: "retriever"
+    name: "elasticsearch"
+    config:
+      index_name: "performance_docs"
+      host: "localhost"
+      port: 9200
+      username: "elastic"
+      password: "sPxLec=NGSFmUT_7+74R"
+      use_ssl: true
+      verify_certs: false
+      search_type: "text"  # text, vector, hybrid
+      top_k: 5
+      similarity_threshold: 0.1
+      debug: true
+  
+  # 重排序器（可选）
+  reranker:
+    type: "reranker"
+    name: "cross_encoder"
+    config:
+      model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      top_k: 3
+      batch_size: 16
+      debug: true
+  
+  # 生成器
+  generator:
+    type: "generator"
+    name: "llm"
+    config:
+      llm_type: "zhipu"
+      model: "glm-4"
+      temperature: 0.7
+      max_tokens: 1000
+      debug: true
+
+# 流程定义 - 搜索流程
+flow:
+  # 搜索流程：检索 -> 重排序 -> 生成
+  es_retriever: ["reranker"]
+  reranker: ["generator"]
+  generator: []
+
+# 入口点
+entry_point: "es_retriever"
