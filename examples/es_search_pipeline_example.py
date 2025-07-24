@@ -50,21 +50,14 @@ def test_es_search_pipeline():
             )
 
             # 显示结果
-            if result.get("success", False):
-                logger.info(f"检索到 {result.get('result_count', 0)} 个相关文档")
+            if result.get("answer"):  # 改为检查 'answer' 字段是否存在
+                logger.info(f"检索到 {result.get('context_used', 0)} 个相关文档")
 
-                # 显示检索结果
-                if "retrieved_docs" in result:
-                    for j, doc in enumerate(result["retrieved_docs"][:3], 1):
-                        logger.info(
-                            f"文档 {j}: {doc.get('metadata', {}).get('title', 'Unknown')}"
-                        )
-                        logger.info(f"相似度: {doc.get('score', 0):.4f}")
-
+                # 显示检索结果（需要从上游组件获取）
+                # 注意：由于pipeline流程，检索结果可能不在最终结果中
+                
                 # 显示生成的回答
-                if "generated_answer" in result:
-                    logger.info(f"生成的回答: {result['generated_answer'][:200]}...")
-
+                logger.info(f"生成的回答: {result['answer'][:200]}...")
             else:
                 logger.error(f"搜索失败: {result.get('error', '未知错误')}")
 
@@ -86,6 +79,7 @@ def test_different_search_types():
     query = "什么是perf工具？"
 
     for search_type in search_types:
+        logger = get_logger(__name__)
         logger.info(f"\n--- 测试 {search_type} 搜索 ---")
 
         try:
@@ -98,10 +92,15 @@ def test_different_search_types():
                 entry_point="es_retriever",
             )
 
-            if result.get("success", False):
-                logger.info(
-                    f"{search_type} 搜索成功，找到 {result.get('result_count', 0)} 个结果"
-                )
+            # 修复：检查正确的字段
+            if result.get("answer") or result.get("result_count", 0) > 0:
+                if result.get("answer"):
+                    logger.info(f"{search_type} 搜索成功，生成了回答")
+                    logger.info(f"使用了 {result.get('context_used', 0)} 个相关文档")
+                else:
+                    logger.info(
+                        f"{search_type} 搜索成功，找到 {result.get('result_count', 0)} 个结果"
+                    )
             else:
                 logger.error(
                     f"{search_type} 搜索失败: {result.get('error', '未知错误')}"
@@ -135,17 +134,19 @@ def interactive_search():
                 {"query": query, "top_k": 3}, entry_point="es_retriever"
             )
 
-            if result.get("success", False):
-                print(f"\n找到 {result.get('result_count', 0)} 个相关结果:")
-
-                if "retrieved_docs" in result:
-                    for i, doc in enumerate(result["retrieved_docs"][:3], 1):
+            # 在interactive_search函数中，将这行：
+            # if result.get("success", False):
+            # 改为：
+            if result.get("answer") or result.get("result_count", 0) > 0:
+                if result.get("answer"):
+                    print(f"\n生成的回答: {result['answer']}")
+                    print(f"使用了 {result.get('context_used', 0)} 个相关文档")
+                elif "results" in result:
+                    print(f"\n找到 {result.get('result_count', 0)} 个相关结果:")
+                    for i, doc in enumerate(result["results"][:3], 1):
                         print(f"{i}. {doc.get('metadata', {}).get('title', 'Unknown')}")
                         print(f"   相似度: {doc.get('score', 0):.4f}")
                         print(f"   内容: {doc.get('content', '')[:100]}...")
-
-                if "generated_answer" in result:
-                    print(f"\n回答: {result['generated_answer']}")
             else:
                 print(f"搜索失败: {result.get('error', '未知错误')}")
 
