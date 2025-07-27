@@ -83,16 +83,22 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         """初始化embedding客户端"""
         try:
             embedding_type = self.embedding_config.get("type", "hf")
-
             if embedding_type == "hf":
                 emb_cfg = config.embeddings.clients.hf
                 self.embedding_client = EmbeddingFactory.create(
                     "hf", model_name=emb_cfg.model_name
                 )
             elif embedding_type == "openai":
-                emb_cfg = config.embeddings.clients.openai
+                # 直接使用配置文件中的参数
                 self.embedding_client = EmbeddingFactory.create(
-                    "openai", api_key=emb_cfg.api_key
+                    "openai",
+                    model=self.embedding_config.get("model"),
+                    api_key=self.embedding_config.get("api_key"),
+                    api_base=self.embedding_config.get("api_base"),
+                    batch_size=self.embedding_config.get("batch_size", 10),
+                    dimensions=self.embedding_config.get("dimensions"),
+                    timeout=self.embedding_config.get("timeout", 60),
+                    max_retries=self.embedding_config.get("max_retries", 3)
                 )
             elif embedding_type == "bge_embedding":
                 emb_cfg = config.embeddings.clients.bge_embedding

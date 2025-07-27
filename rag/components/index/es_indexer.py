@@ -40,6 +40,15 @@ class ESIndexerComponent(BaseIndexer):
 
         self.client = None
 
+        # 移除流式处理相关的缓冲区
+        # self._document_buffer = []
+        # self._total_indexed = 0
+
+        # 性能优化配置
+        self.disable_refresh = config.get("disable_refresh", True)  # 禁用实时刷新
+        self.bulk_timeout = config.get("bulk_timeout", 60)
+        self.max_chunk_bytes = config.get("max_chunk_bytes", 15 * 1024 * 1024)  # 15MB
+
     def _do_initialize(self):
         """初始化ES客户端"""
         try:
@@ -50,17 +59,20 @@ class ESIndexerComponent(BaseIndexer):
             else:
                 hosts = [f"http://{self.host}:{self.port}"]
 
+            # 优化的ES配置
             es_config = {
                 "hosts": hosts,
                 "verify_certs": self.verify_certs,
+                "timeout": self.bulk_timeout,
+                "max_retries": 3,
+                "retry_on_timeout": True,
+                # 连接池优化
+                "maxsize": 25,
+                "http_compress": True,  # 启用压缩
             }
 
             if self.username and self.password:
                 es_config["basic_auth"] = (self.username, self.password)
-
-            # 移除 use_ssl 参数，因为 ES 8.x 不支持
-            # if self.use_ssl:
-            #     es_config["use_ssl"] = True
 
             self.client = Elasticsearch(**es_config)
 
@@ -121,11 +133,14 @@ class ESIndexerComponent(BaseIndexer):
     def index_documents(
         self, documents: List[Dict[str, Any]], index_name: Optional[str] = None
     ) -> bool:
-        """批量索引文档"""
+        """优化的批量索引文档"""
         target_index = index_name or self.index_name
         try:
             # 确保索引存在
             self.create_index(target_index)
+
+            if self.debug:
+                self.logger.debug(f"开始索引 {len(documents)} 个文档到 {target_index}")
 
             # 准备批量操作
             actions = []
@@ -134,17 +149,24 @@ class ESIndexerComponent(BaseIndexer):
                 action = {"_index": target_index, "_id": doc_id, "_source": doc}
                 actions.append(action)
 
-            success_count, failed_items = bulk(
-                self.client, actions, chunk_size=self.batch_size, request_timeout=60
-            )
+            # 优化的批量索引
+            try:
+                success_count, failed_items = bulk(
+                    self.client,
+                    actions,
+                    chunk_size=self.batch_size,
+                    max_chunk_bytes=self.max_chunk_bytes,  # 限制批次大小
+                    request_timeout=self.bulk_timeout,
+                    refresh=False,  # 禁用立即刷新
+                )
+            except Exception as bulk_error:
+                self.logger.error(f"批量索引操作失败: {bulk_error}")
+                raise
 
-            # 添加刷新操作，确保文档立即可搜索
-            self.client.indices.refresh(index=target_index)
-
-            if self.debug:
-                self.logger.debug(f"成功索引 {success_count} 个文档到 {target_index}")
-                if failed_items:
-                    self.logger.warning(f"失败 {len(failed_items)} 个文档")
+            # 移除自动刷新 - 让ES自动处理
+            # if self.debug:
+            #     self.logger.debug("刷新索引以确保文档可搜索")
+            # self.client.indices.refresh(index=target_index)
 
             return len(failed_items) == 0
 
@@ -218,3 +240,56 @@ class ESIndexerComponent(BaseIndexer):
         except Exception as e:
             self.logger.error(f"获取文档失败: {e}")
             return None
+
+    def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """处理文档数据并进行索引"""
+        if "documents" not in data:
+            error_msg = "输入数据中缺少 'documents' 字段"
+            self.logger.error(error_msg)
+            raise ValueError(error_msg)
+
+        documents = data["documents"]
+        if not documents:
+            self.logger.warning("没有文档需要索引")
+            return data
+
+        if self.debug:
+            self.logger.debug(f"开始索引 {len(documents)} 个文档")
+            # 添加文档内容的基本统计信息
+            total_content_length = sum(
+                len(str(doc.get("content", ""))) for doc in documents
+            )
+            avg_content_length = (
+                total_content_length / len(documents) if documents else 0
+            )
+            self.logger.debug(
+                f"文档统计 - 总数: {len(documents)}, 平均内容长度: {avg_content_length:.0f} 字符"
+            )
+
+        try:
+            # 批量索引文档
+            success = self.index_documents(documents)
+
+            if not success:
+                self.logger.error(f"索引文档失败 - 共 {len(documents)} 个文档")
+
+        except Exception as e:
+            self.logger.error(f"处理文档时发生异常: {e}")
+            self.logger.error(f"异常类型: {type(e).__name__}")
+            import traceback
+
+            self.logger.error(f"完整错误堆栈: {traceback.format_exc()}")
+            success = False
+
+        # 返回处理结果
+        result = data.copy()
+        result["indexed"] = success
+        result["document_count"] = len(documents)
+        result["index_name"] = self.index_name
+        result["metadata"] = {
+            "component": self.name,
+            "indexer_type": self.__class__.__name__,
+            "batch_size": self.batch_size,
+        }
+
+        return result

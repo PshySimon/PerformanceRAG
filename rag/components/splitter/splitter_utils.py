@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from llama_index.core.bridge.pydantic import Field, PrivateAttr
 from llama_index.core.callbacks.base import CallbackManager
@@ -14,7 +14,7 @@ from llama_index.core.node_parser.text.utils import (
     split_by_sep,
 )
 from llama_index.core.schema import BaseNode, Document, NodeRelationship
-from llama_index.core.utils import get_tokenizer, get_tqdm_iterable
+from llama_index.core.utils import get_tokenizer
 
 from utils.logger import get_logger
 
@@ -104,6 +104,7 @@ class TextSplitter(BaseSplitter):
             return []
 
         result = []
+        # 移除进度条，直接遍历文档
         for doc in documents:
             content = doc.get("content", "")
             metadata = doc.get("metadata", {})
@@ -114,6 +115,22 @@ class TextSplitter(BaseSplitter):
             result.extend(chunks)
 
         return result
+
+    def split_stream(self, documents: List[Dict[str, Any]]) -> Iterator[Dict[str, Any]]:
+        """流式分割文档"""
+        if not documents:
+            return
+
+        for doc in documents:
+            content = doc.get("content", "")
+            metadata = doc.get("metadata", {})
+            if not content:
+                continue
+
+            # 逐个分割并yield每个chunk
+            chunks = self.split_text(content, metadata)
+            for chunk in chunks:
+                yield chunk
 
     def _split_by_character(self, text: str) -> List[str]:
         """按字符数分割"""
@@ -388,19 +405,11 @@ class SemanticSplitter(BaseSplitter):
         if len(sentences) <= 1:
             return [text]
 
-        # 进度条支持
-        try:
-            from tqdm import tqdm
-
-            iterator = tqdm(sentences, desc="[SemanticSplitter] 分割进度", ncols=80)
-        except ImportError:
-            iterator = sentences  # 直接用原始list
-
         chunks = []
         current_chunk = ""
         current_sentences = []
 
-        for idx, sentence in enumerate(iterator):
+        for idx, sentence in enumerate(sentences):
             # 如果当前chunk为空，直接添加句子
             if not current_chunk:
                 current_chunk = sentence
@@ -438,6 +447,7 @@ class SemanticSplitter(BaseSplitter):
             return []
 
         result = []
+        # 移除进度条，直接遍历文档
         for doc in documents:
             content = doc.get("content", "")
             metadata = doc.get("metadata", {})
@@ -565,9 +575,6 @@ class HierarchicalSplitter(BaseSplitter):
         for node in oversized_nodes:
             # 第一级退化
             primary_splitter = self._create_fallback_splitter("primary")
-            logger.info(
-                f"使用{self.fallback_config['primary']['type']}分割器进行一级退化分割"
-            )
 
             primary_chunks = primary_splitter.split_text(
                 node["content"], node["metadata"]
@@ -586,21 +593,53 @@ class HierarchicalSplitter(BaseSplitter):
 
             # 第二级退化（最终兜底）
             if still_oversized:
-                secondary_splitter = self._create_fallback_splitter("secondary")
-                logger.info(
-                    f"使用{self.fallback_config['secondary']['type']}分割器进行二级退化分割"
-                )
+                # 添加安全检查
+                if "secondary" in self.fallback_config:
+                    secondary_splitter = self._create_fallback_splitter("secondary")
 
-                for chunk in still_oversized:
-                    final_chunks = secondary_splitter.split_text(
-                        chunk["content"], chunk["metadata"]
-                    )
-                    for final_chunk in final_chunks:
-                        final_chunk["metadata"]["split_method"] = (
-                            f"hierarchical+{self.fallback_config['primary']['type']}"
-                            f"+{self.fallback_config['secondary']['type']}"
+                    for chunk in still_oversized:
+                        final_chunks = secondary_splitter.split_text(
+                            chunk["content"], chunk["metadata"]
                         )
-                    result.extend(final_chunks)
+                        for final_chunk in final_chunks:
+                            final_chunk["metadata"]["split_method"] = (
+                                f"hierarchical+{self.fallback_config['primary']['type']}"
+                                f"+{self.fallback_config['secondary']['type']}"
+                            )
+                        result.extend(final_chunks)
+                else:
+                    # 如果经过所有退化后仍有超大节点，强制截断
+                    for chunk in still_oversized:
+                        content = chunk["content"]
+                        metadata = chunk["metadata"]
+                        
+                        # 强制按最大长度截断
+                        max_safe_length = min(300, self.max_chunk_size // 2)
+                        
+                        while len(content) > max_safe_length:
+                            # 截断并创建新chunk
+                            truncated_content = content[:max_safe_length]
+                            truncated_metadata = metadata.copy()
+                            truncated_metadata["split_method"] = "hierarchical+emergency_truncation"
+                            truncated_metadata["truncated"] = True
+                            
+                            result.append({
+                                "content": truncated_content,
+                                "metadata": truncated_metadata
+                            })
+                            
+                            content = content[max_safe_length:]
+                        
+                        # 处理剩余部分
+                        if content:
+                            final_metadata = metadata.copy()
+                            final_metadata["split_method"] = "hierarchical+emergency_truncation"
+                            final_metadata["truncated"] = True
+                            
+                            result.append({
+                                "content": content,
+                                "metadata": final_metadata
+                            })
 
         return result
 
@@ -611,6 +650,7 @@ class HierarchicalSplitter(BaseSplitter):
             return []
 
         result = []
+
         for doc in documents:
             content = doc.get("content", "")
             metadata = doc.get("metadata", {})
@@ -669,7 +709,7 @@ class HierarchicalSplitter(BaseSplitter):
 
         # 如果有超过最大chunk_size的节点，使用配置化的退化处理
         if oversized_nodes:
-            logger.warning(f"发现{len(oversized_nodes)}个超过最大chunk_size的节点")
+
             fallback_chunks = self._handle_oversized_nodes(oversized_nodes)
             result.extend(fallback_chunks)
 
@@ -731,7 +771,7 @@ class SentenceSplitter(MetadataAwareTextSplitter, BaseSplitter):
             )
         id_func = id_func or default_id_func
         callback_manager = callback_manager or CallbackManager([])
-        
+
         # 先调用父类初始化
         super().__init__(
             chunk_size=chunk_size,
@@ -744,17 +784,30 @@ class SentenceSplitter(MetadataAwareTextSplitter, BaseSplitter):
             include_prev_next_rel=include_prev_next_rel,
             id_func=id_func,
         )
-        
+
         # 然后初始化私有属性
-        self._init_private_attrs(tokenizer, chunking_tokenizer_fn, paragraph_separator, secondary_chunking_regex, separator)
-    
-    def _init_private_attrs(self, tokenizer, chunking_tokenizer_fn, paragraph_separator, secondary_chunking_regex, separator):
+        self._init_private_attrs(
+            tokenizer,
+            chunking_tokenizer_fn,
+            paragraph_separator,
+            secondary_chunking_regex,
+            separator,
+        )
+
+    def _init_private_attrs(
+        self,
+        tokenizer,
+        chunking_tokenizer_fn,
+        paragraph_separator,
+        secondary_chunking_regex,
+        separator,
+    ):
         """初始化私有属性"""
         self._chunking_tokenizer_fn = (
             chunking_tokenizer_fn or split_by_sentence_tokenizer()
         )
         self._tokenizer = tokenizer or get_tokenizer()
-        print(self._tokenizer)
+        # print(self._tokenizer)  # 注释掉这行
 
         self._split_fns = [
             split_by_sep(paragraph_separator),
@@ -969,11 +1022,21 @@ class SentenceSplitter(MetadataAwareTextSplitter, BaseSplitter):
         return splits, False
 
     def split(self, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """分割文档列表"""
+        """将文档列表分割成更小的块"""
+        if not documents:
+            return []
+
         result = []
+        # 移除进度条，直接遍历文档
         for doc in documents:
-            chunks = self.split_text(doc["content"], doc.get("metadata", {}))
+            content = doc.get("content", "")
+            metadata = doc.get("metadata", {})
+            if not content:
+                continue
+
+            chunks = self.split_text(content, metadata)
             result.extend(chunks)
+
         return result
 
 
@@ -1136,12 +1199,8 @@ class HierarchicalNodeParser(NodeParser, BaseSplitter):
                 f"splitters ({len(self.node_parser_ids)})."
             )
 
-        # first split current nodes into sub-nodes
-        nodes_with_progress = get_tqdm_iterable(
-            nodes, show_progress, "Parsing documents into nodes"
-        )
         sub_nodes = []
-        for node in nodes_with_progress:
+        for node in nodes:
             cur_sub_nodes = self.node_parser_map[
                 self.node_parser_ids[level]
             ].get_nodes_from_documents([node])
@@ -1186,12 +1245,8 @@ class HierarchicalNodeParser(NodeParser, BaseSplitter):
             CBEventType.NODE_PARSING, payload={EventPayload.DOCUMENTS: documents}
         ) as event:
             all_nodes: List[BaseNode] = []
-            documents_with_progress = get_tqdm_iterable(
-                documents, show_progress, "Parsing documents into nodes"
-            )
 
-            # TODO: a bit of a hack rn for tqdm
-            for doc in documents_with_progress:
+            for doc in documents:
                 nodes_from_doc = self._recursively_get_nodes_from_nodes([doc], 0)
                 all_nodes.extend(nodes_from_doc)
 
@@ -1208,6 +1263,7 @@ class HierarchicalNodeParser(NodeParser, BaseSplitter):
     def split(self, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """分割文档列表"""
         result = []
+        # 移除进度条，直接遍历文档
         for doc in documents:
             chunks = self.split_text(doc["content"], doc.get("metadata", {}))
             result.extend(chunks)

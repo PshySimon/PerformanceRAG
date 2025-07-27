@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Iterator
 from pathlib import Path
 
 # 修正导入路径
@@ -98,6 +98,58 @@ class FileLoader(BaseLoader):
         # 提取标题上下文并返回
         return self._extract_heading_context(nodes)
 
+    def _process_single_file(self, file_path: Path) -> List[Dict[str, Any]]:
+        """处理单个文件并返回文档列表"""
+        documents = []
+        file_ext = file_path.suffix.lower()
+        
+        if file_ext not in self.file_types:
+            return documents
+            
+        if file_ext == ".pdf":
+            reader = PDFReader()
+            docs = reader.load_data(file_path=str(file_path))
+            for doc in docs:
+                documents.append({
+                    "content": doc.text,
+                    "metadata": {
+                        "source": str(file_path),
+                        "file_type": file_ext,
+                        "filename": file_path.name,
+                    }
+                })
+        elif file_ext == ".html":
+            reader = BeautifulSoupWebReader()
+            docs = reader.load_data(file_path=str(file_path))
+            for doc in docs:
+                documents.append({
+                    "content": doc.text,
+                    "metadata": {
+                        "source": str(file_path),
+                        "file_type": file_ext,
+                        "filename": file_path.name,
+                    }
+                })
+        elif file_ext == ".md" and self.enable_markdown_parsing:
+            # 特殊处理 Markdown 文件
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            documents.extend(self._process_markdown_file(str(file_path), content))
+        else:  # .txt 和其他文本文件，或禁用 Markdown 解析的 .md 文件
+            reader = SimpleDirectoryReader(input_files=[str(file_path)])
+            docs = reader.load_data()
+            for doc in docs:
+                documents.append({
+                    "content": doc.text,
+                    "metadata": {
+                        "source": str(file_path),
+                        "file_type": file_ext,
+                        "filename": file_path.name,
+                    }
+                })
+        
+        return documents
+
     def load(self) -> List[Dict[str, Any]]:
         """加载文件并返回文档列表"""
         path = Path(self.path)
@@ -107,79 +159,41 @@ class FileLoader(BaseLoader):
         documents = []
         if path.is_file():
             # 处理单个文件
-            file_ext = path.suffix.lower()
-            if file_ext in self.file_types:
-                if file_ext == ".pdf":
-                    reader = PDFReader()
-                    docs = reader.load_data(file_path=str(path))
-                    for doc in docs:
-                        documents.append({
-                            "content": doc.text,
-                            "metadata": {
-                                "source": str(path),
-                                "file_type": file_ext,
-                            }
-                        })
-                elif file_ext == ".html":
-                    reader = BeautifulSoupWebReader()
-                    docs = reader.load_data(file_path=str(path))
-                    for doc in docs:
-                        documents.append({
-                            "content": doc.text,
-                            "metadata": {
-                                "source": str(path),
-                                "file_type": file_ext,
-                            }
-                        })
-                elif file_ext == ".md" and self.enable_markdown_parsing:
-                    # 特殊处理 Markdown 文件
-                    with open(path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    documents.extend(self._process_markdown_file(str(path), content))
-                else:  # .txt 和其他文本文件，或禁用 Markdown 解析的 .md 文件
-                    reader = SimpleDirectoryReader(input_files=[str(path)])
-                    docs = reader.load_data()
-                    for doc in docs:
-                        documents.append({
-                            "content": doc.text,
-                            "metadata": {
-                                "source": str(path),
-                                "file_type": file_ext,
-                            }
-                        })
+            documents.extend(self._process_single_file(path))
         else:  # 处理目录
             # 获取目录下所有符合条件的文件
             all_files = []
             for file_type in self.file_types:
                 all_files.extend(list(path.glob(f"**/*{file_type}")))
             
-            if not all_files:
-                return documents
-            
             # 分别处理不同类型的文件
             for file_path in all_files:
-                file_ext = file_path.suffix.lower()
-                
-                if file_ext == ".md" and self.enable_markdown_parsing:
-                    # 特殊处理 Markdown 文件
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    documents.extend(self._process_markdown_file(str(file_path), content))
-                else:
-                    # 其他文件类型使用原有逻辑
-                    reader = SimpleDirectoryReader(input_files=[str(file_path)])
-                    docs = reader.load_data()
-                    for doc in docs:
-                        source = doc.metadata.get("file_path", str(file_path))
-                        documents.append({
-                            "content": doc.text,
-                            "metadata": {
-                                "source": source,
-                                "file_type": file_ext,
-                            }
-                        })
+                documents.extend(self._process_single_file(file_path))
         
         return documents
+
+    def load_stream(self) -> Iterator[Dict[str, Any]]:
+        """流式加载文件，逐个返回文档"""
+        path = Path(self.path)
+        if not path.exists():
+            raise FileNotFoundError(f"文件或目录不存在: {self.path}")
+
+        if path.is_file():
+            # 处理单个文件
+            documents = self._process_single_file(path)
+            for doc in documents:
+                yield doc
+        else:  # 处理目录
+            # 获取目录下所有符合条件的文件
+            all_files = []
+            for file_type in self.file_types:
+                all_files.extend(list(path.glob(f"**/*{file_type}")))
+            
+            # 逐个处理文件并yield文档
+            for file_path in all_files:
+                documents = self._process_single_file(file_path)
+                for doc in documents:
+                    yield doc
 
 
 class WebLoader(BaseLoader):

@@ -4,6 +4,8 @@ from utils.logger import get_logger
 
 from .embedding_reranker import EmbeddingRerankerComponent
 from .llm_reranker import LLMRerankerComponent
+from .zhipu_reranker import ZhipuRerankerComponent
+from .openai_reranker import OpenAIRerankerComponent
 
 
 class RerankerFactory:
@@ -20,6 +22,12 @@ class RerankerFactory:
         elif reranker_type == "embedding":
             logger.info(f"创建Embedding重排组件: {name}")
             return EmbeddingRerankerComponent(name, config)
+        elif reranker_type == "zhipu":
+            logger.info(f"创建智谱重排组件: {name}")
+            return ZhipuRerankerComponent(name, config)
+        elif reranker_type == "openai":
+            logger.info(f"创建OpenAI重排组件: {name}")
+            return OpenAIRerankerComponent(name, config)
         else:
             raise ValueError(f"不支持的重排组件类型: {reranker_type}")
 

@@ -21,6 +21,7 @@ jieba==0.42.1
 
 # Web/服务
 Flask==3.1.1
+Streamlit==1.36.0
 
 # 进度条
 tqdm==4.67.1

@@ -1,0 +1,33 @@
+# OpenAI Embedding单点测试流水线配置
+components:
+  # 文档加载器 - 加载测试数据
+  document_loader:
+    type: "loader"
+    name: "file"
+    config:
+      path: "./test_cases/test_data"
+      file_types: [".txt", ".md"]
+      encoding: "utf-8"
+      debug: true
+  
+  # OpenAI Embedding组件 - 单点测试
+  openai_embedding:
+    type: "embedding"
+    name: "openai"
+    config:
+      model: "text-embedding-v4"
+      api_key: "sk-2e6fe63e9e844676bceabc6f91a948be"
+      api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      batch_size: 5
+      dimensions: 2048  
+      timeout: 60
+      max_retries: 3
+      debug: true
+
+# 流程定义 - 简单的加载->向量化流程
+flow:
+  document_loader: ["openai_embedding"]
+  openai_embedding: []  # 终点组件
+
+# 入口点
+entry_point: "document_loader"

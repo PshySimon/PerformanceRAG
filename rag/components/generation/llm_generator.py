@@ -1,10 +1,9 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Iterator
 
 from utils.llm.factory import LLMFactory
 from utils.prompt import prompt_manager
 
 from .base_generator import BaseGeneratorComponent
-
 
 class LLMGeneratorComponent(BaseGeneratorComponent):
     """基于LLM的生成器组件"""
@@ -77,14 +76,11 @@ class LLMGeneratorComponent(BaseGeneratorComponent):
 
 请提供准确、详细的答案："""
 
-    def generate(
-        self, query: str, context: List[Dict[str, Any]], **kwargs
-    ) -> Dict[str, Any]:
+    def generate(self, query: str, context: List[Dict[str, Any]], **kwargs) -> Dict[str, Any]:
         """生成回答"""
         try:
             # 构建提示词
             prompt = self._build_prompt(query, context)
-
             if self.debug:
                 self.logger.debug(f"生成提示词: {prompt[:200]}...")
 
@@ -106,3 +102,19 @@ class LLMGeneratorComponent(BaseGeneratorComponent):
                 "answer": f"抱歉，生成回答时出现错误: {str(e)}",
                 "metadata": {"error": str(e)},
             }
+    
+    def generate_stream(self, query: str, context: List[Dict[str, Any]], **kwargs) -> Iterator[str]:
+        """流式生成回答"""
+        try:
+            # 构建提示词
+            prompt = self._build_prompt(query, context)
+            if self.debug:
+                self.logger.debug(f"流式生成提示词: {prompt[:200]}...")
+
+            # 调用LLM客户端流式生成回答
+            for chunk in self.llm_client.completion_stream(prompt, **kwargs):
+                yield chunk
+
+        except Exception as e:
+            self.logger.error(f"流式生成回答失败: {e}")
+            yield f"抱歉，生成回答时出现错误: {str(e)}"

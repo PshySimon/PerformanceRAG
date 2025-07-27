@@ -1,0 +1,18 @@
+name: "zhipu_reranker_pipeline"
+description: "智谱重排Pipeline示例"
+
+components:
+  - name: "zhipu_reranker"
+    type: "reranker"
+    subtype: "zhipu"
+    config:
+      api_key: "2de2c50a16b2abd14ead1d39ee20ccd4.ttmQMnxQyQN5rmeN"  # 请替换为实际密钥
+      top_k: 5
+      score_threshold: 0.0
+      timeout: 30
+      return_documents: true
+      return_raw_scores: true
+      debug: true
+
+flow:
+  entry_point: "zhipu_reranker"

@@ -1,4 +1,4 @@
-from typing import Any, Dict
+from typing import Any, Dict, Iterator
 
 from ..base import Component
 from .splitter_utils import HierarchicalSplitter
@@ -59,3 +59,38 @@ class HierarchicalSplitterComponent(Component):
                 "total_chunks": len(split_documents),
             },
         }
+
+    def process_stream(self, data: Dict[str, Any]) -> Iterator[Dict[str, Any]]:
+        """流式处理文档数据"""
+        if not self._initialized:
+            self.initialize()
+
+        if "documents" not in data:
+            raise ValueError("输入数据中缺少 'documents' 字段")
+
+        documents = data["documents"]
+        if self.debug:
+            self.logger.debug(f"开始流式分割 {len(documents)} 个文档")
+
+        # 使用分割器处理文档
+        split_documents = self.splitter.split(documents)
+
+        if self.debug:
+            self.logger.debug(f"分割完成，生成 {len(split_documents)} 个文档块")
+
+        # 流式返回结果
+        result = {
+            "documents": split_documents,
+            "metadata": {
+                "component": self.name,
+                "chunk_sizes": self.chunk_sizes,
+                "total_chunks": len(split_documents),
+            },
+        }
+
+        # 如果有下一个组件，传递给下一个组件
+        if self._next_components:
+            for next_result in self._next_components[0].process_stream(result):
+                yield next_result
+        else:
+            yield result

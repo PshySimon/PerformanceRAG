@@ -29,15 +29,15 @@ class BaseRetrieverComponent(Component):
         """处理输入数据"""
         if "query" not in data:
             raise ValueError("输入数据必须包含 'query' 字段")
-
+    
         query = data["query"]
         top_k = data.get("top_k", self.top_k)
-
+    
         # 执行检索
         results = self.retrieve(query, top_k)
-
+    
         return {
-            "results": results,
+            "documents": results,  # 改为 documents
             "query": query,
             "result_count": len(results),
             "metadata": {

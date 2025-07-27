@@ -1,13 +1,12 @@
-default: "zhipu"  # 默认使用的LLM客户端
+default: "openai"  # 默认使用的LLM客户端
 
 clients:
   openai:
     type: "openai"
-    model: "gpt-3.5-turbo"
-    api_key: "your-openai-api-key"  # 或通过环境变量OPENAI_API_KEY设置
-    base_url: "https://api.openai.com/v1"
-    temperature: 0.7
-    max_tokens: 4096
+    model: "qwen-plus"
+    api_key: "sk-2e6fe63e9e844676bceabc6f91a948be"  # 或通过环境变量OPENAI_API_KEY设置
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    max_tokens: 8192
     timeout: 60
 
   zhipu:

@@ -8,6 +8,7 @@ clients:
     normalize_embeddings: true
     batch_size: 32
     max_length: 512
+    dimensions: 384  # all-MiniLM-L6-v2的维度
 
   openai:
     type: "openai"
@@ -16,6 +17,7 @@ clients:
     base_url: "https://api.openai.com/v1"
     timeout: 60
     max_retries: 3
+    dimensions: 1536  # ada-002的维度
 
   bge_embedding:
     type: "bge"
@@ -23,6 +25,7 @@ clients:
     model_name: "bge-large-zh-v1.5"
     timeout: 30
     max_retries: 3
+    dimensions: 1024  # bge-large-zh-v1.5的维度
 
   # 可以添加更多embedding客户端配置
   local_embedding:
@@ -31,3 +34,13 @@ clients:
     device: "cpu"
     normalize_embeddings: true
     batch_size: 16
+    dimensions: 1024  # bge-large-zh-v1.5的维度
+
+  zhipu_embedding:
+    type: "openai"
+    model: "text-embedding-v4"
+    api_key: "your-zhipu-api-key"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    timeout: 60
+    max_retries: 3
+    dimensions: 2048  # 智谱embedding-3的维度
