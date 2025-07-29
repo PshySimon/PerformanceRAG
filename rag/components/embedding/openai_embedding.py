@@ -79,8 +79,13 @@ class OpenAIEmbedding(BaseEmbedding):
         Returns:
             List[float]: 嵌入向量
         """
-        if not text.strip():
-            raise ValueError("不能对空文本进行向量化")
+        if not text or not text.strip():
+            raise ValueError(f"不能对空文本进行向量化，输入文本: '{text}'")
+    
+        # 记录调试信息
+        if self.logger:
+            self.logger.debug(f"正在向量化文本: '{text[:100]}...' (长度: {len(text)})")
+            self.logger.debug(f"使用模型: {self.model}, API基础URL: {self.api_base}")
     
         # 简单的请求参数，不管dimensions
         request_params = {
@@ -88,8 +93,53 @@ class OpenAIEmbedding(BaseEmbedding):
             "input": text
         }
     
-        response = self.client.embeddings.create(**request_params)
-        return response.data[0].embedding
+        try:
+            response = self.client.embeddings.create(**request_params)
+            
+            # 检查响应数据
+            if not response.data:
+                raise ValueError(f"OpenAI API 返回空数据，模型: {self.model}, 文本长度: {len(text)}")
+            
+            if not response.data[0].embedding:
+                raise ValueError(f"OpenAI API 返回空向量，模型: {self.model}, 响应: {response}")
+            
+            embedding = response.data[0].embedding
+            if self.logger:
+                self.logger.debug(f"成功获取向量，维度: {len(embedding)}")
+            
+            return embedding
+            
+        except openai.APIStatusError as e:
+            # 捕获HTTP状态码错误
+            error_msg = f"OpenAI API 返回非200状态码: {e.status_code}\n" \
+                       f"错误类型: {e.type}\n" \
+                       f"错误消息: {e.message}\n" \
+                       f"模型: {self.model}\n" \
+                       f"API基础URL: {self.api_base}\n" \
+                       f"文本长度: {len(text)}\n" \
+                       f"文本内容: '{text[:200]}...'"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        except openai.APIConnectionError as e:
+            # 捕获连接错误
+            error_msg = f"OpenAI API 连接失败: {e}\n" \
+                       f"模型: {self.model}\n" \
+                       f"API基础URL: {self.api_base}\n" \
+                       f"文本长度: {len(text)}\n" \
+                       f"文本内容: '{text[:200]}...'"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
+        except Exception as e:
+            error_msg = f"OpenAI embedding 调用失败: {e}\n" \
+                       f"模型: {self.model}\n" \
+                       f"API基础URL: {self.api_base}\n" \
+                       f"文本长度: {len(text)}\n" \
+                       f"文本内容: '{text[:200]}...'"
+            if self.logger:
+                self.logger.error(error_msg)
+            raise ValueError(error_msg) from e
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """对多条文本进行批量embedding
@@ -124,9 +174,34 @@ class OpenAIEmbedding(BaseEmbedding):
                 response = self.client.embeddings.create(**request_params)
                 batch_embeddings = [data.embedding for data in response.data]
                 results.extend(batch_embeddings)
+            except openai.APIStatusError as e:
+                # 捕获HTTP状态码错误
+                error_msg = f"批量embedding请求返回非200状态码: {e.status_code}\n" \
+                           f"错误类型: {e.type}\n" \
+                           f"错误消息: {e.message}\n" \
+                           f"模型: {self.model}\n" \
+                           f"API基础URL: {self.api_base}\n" \
+                           f"批次大小: {len(batch)}"
+                if self.logger:
+                    self.logger.error(error_msg)
+                raise ValueError(error_msg) from e
+            except openai.APIConnectionError as e:
+                # 捕获连接错误
+                error_msg = f"批量embedding请求连接失败: {e}\n" \
+                           f"模型: {self.model}\n" \
+                           f"API基础URL: {self.api_base}\n" \
+                           f"批次大小: {len(batch)}"
+                if self.logger:
+                    self.logger.error(error_msg)
+                raise ValueError(error_msg) from e
             except Exception as e:
-                self.logger.error(f"批量embedding请求失败: {e}")
-                raise
+                error_msg = f"批量embedding请求失败: {e}\n" \
+                           f"模型: {self.model}\n" \
+                           f"API基础URL: {self.api_base}\n" \
+                           f"批次大小: {len(batch)}"
+                if self.logger:
+                    self.logger.error(error_msg)
+                raise ValueError(error_msg) from e
     
         return results
 

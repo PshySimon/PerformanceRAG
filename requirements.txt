@@ -12,6 +12,7 @@ llama-index-agent-openai==0.4.12
 
 # 向量/大模型相关
 transformers==4.47.0
+vllm==0.8.5
 torch==2.5.1
 sentence-transformers==2.6.1
 faiss-cpu==1.8.0.post1

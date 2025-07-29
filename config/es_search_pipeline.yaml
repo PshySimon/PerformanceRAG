@@ -11,12 +11,69 @@ components:
       password: "sPxLec=NGSFmUT_7+74R"
       use_ssl: true
       verify_certs: false
-      search_type: "hybrid"  # text, vector, hybrid
+      search_type: "hybrid"
+      similarity_threshold: 0.75
+      
+      # Small2Big检索配置
+      enable_small2big: true
+      small2big_config:
+        small_chunk_size: 128
+        medium_chunk_size: 512
+        big_chunk_size: 1536
+        expansion_strategy: "parent_expansion"
+        small_chunk_top_k: 20
+        final_top_k: 10
+        similarity_threshold_small: 0.6
+        score_fusion_method: "max"
+        enable_score_normalization: true
+        diversity_threshold: 0.8
+        max_small_chunks_per_big: 5
+      
+      # RRF融合配置
+      fusion_method: "rrf"
+      rrf_k: 60
+      text_weight: 1.0
+      vector_weight: 1.2
+      
+      # 🔧 修改搜索字段配置，添加 content_jieba
+      search_fields: {
+        "content": 2.0,
+        "content_jieba": 2.5,  # 给jieba分词字段更高权重
+        "metadata.file_path": 1.2,
+        "metadata.title": 1.5   # 如果有title字段也加上
+      }
+      
+      # 🆕 添加分析器配置
+      analyzer_config:
+        search_analyzer: "ik_search_analyzer"  # 搜索时使用ik_smart
+        index_analyzer: "ik_analyzer"          # 索引时使用ik_max_word
+      
+      # 🆕 添加高亮配置
+      highlight_config:
+        require_field_match: false  # 允许跨字段高亮
+        fragment_size: 150
+        number_of_fragments: 3
+        pre_tags: ["<mark>"]
+        post_tags: ["</mark>"]
+        # 为不同字段设置不同的高亮参数
+        fields:
+          content:
+            fragment_size: 200
+            number_of_fragments: 2
+          content_jieba:
+            fragment_size: 200
+            number_of_fragments: 2
+            analyzer: "ik_search_analyzer"  # 明确指定分析器
+          "metadata.file_path":
+            fragment_size: 100
+            number_of_fragments: 1
+      
       embedding:
         type: "openai"
-        model: "./models/bge-m3"
+        model: "models/bge-m3"
+        field_name: "content_vector"
         api_key: "123456"
-        api_base: "http://workspace.featurize.cn:11018/v1"
+        api_base: "http://workspace.featurize.cn:38819/v1"
         batch_size: 10
         timeout: 30
       debug: true
@@ -26,9 +83,9 @@ components:
     name: "openai"
     config:
       api_key: "123456"
-      base_url: "http://workspace.featurize.cn:26356/v1"
-      model: "./models/bge-reranker-v2-m3"
-      top_k: 5
+      base_url: "http://workspace.featurize.cn:62294/v1"
+      model: "models/bge-reranker-v2-m3"
+      top_k: 10
       debug: true
   
   openai_generator:

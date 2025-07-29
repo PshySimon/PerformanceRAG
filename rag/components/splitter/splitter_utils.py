@@ -1,3 +1,6 @@
+import hashlib
+import math
+import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
 
@@ -182,7 +185,6 @@ class TextSplitter(BaseSplitter):
 
     def _split_by_sentence(self, text: str) -> List[str]:
         """按句子分割"""
-        import re
 
         # 简单的句子分割正则表达式
         sentence_pattern = r"[.!?。！？]+"
@@ -309,7 +311,6 @@ class SemanticSplitter(BaseSplitter):
 
     def _split_into_sentences(self, text: str) -> List[str]:
         """将文本分割成句子"""
-        import re
 
         # 简单的句子分割
         sentence_pattern = r"[.!?。！？]+"
@@ -338,7 +339,6 @@ class SemanticSplitter(BaseSplitter):
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """计算两个向量的余弦相似度"""
-        import math
 
         if len(vec1) != len(vec2):
             return 0.0
@@ -612,34 +612,39 @@ class HierarchicalSplitter(BaseSplitter):
                     for chunk in still_oversized:
                         content = chunk["content"]
                         metadata = chunk["metadata"]
-                        
+
                         # 强制按最大长度截断
                         max_safe_length = min(300, self.max_chunk_size // 2)
-                        
+
                         while len(content) > max_safe_length:
                             # 截断并创建新chunk
                             truncated_content = content[:max_safe_length]
                             truncated_metadata = metadata.copy()
-                            truncated_metadata["split_method"] = "hierarchical+emergency_truncation"
+                            truncated_metadata["split_method"] = (
+                                "hierarchical+emergency_truncation"
+                            )
                             truncated_metadata["truncated"] = True
-                            
-                            result.append({
-                                "content": truncated_content,
-                                "metadata": truncated_metadata
-                            })
-                            
+
+                            result.append(
+                                {
+                                    "content": truncated_content,
+                                    "metadata": truncated_metadata,
+                                }
+                            )
+
                             content = content[max_safe_length:]
-                        
+
                         # 处理剩余部分
                         if content:
                             final_metadata = metadata.copy()
-                            final_metadata["split_method"] = "hierarchical+emergency_truncation"
+                            final_metadata["split_method"] = (
+                                "hierarchical+emergency_truncation"
+                            )
                             final_metadata["truncated"] = True
-                            
-                            result.append({
-                                "content": content,
-                                "metadata": final_metadata
-                            })
+
+                            result.append(
+                                {"content": content, "metadata": final_metadata}
+                            )
 
         return result
 
@@ -680,40 +685,126 @@ class HierarchicalSplitter(BaseSplitter):
             # 如果分割过程中出现异常，直接抛出，不再退化
             raise ValueError(f"HierarchicalNodeParser分割失败: {e}")
 
+        root_id = hashlib.md5(text.encode()).hexdigest()[:16]
+
+        # 按层级组织节点
+        nodes_by_level = {}
+        for node in nodes:
+            text_length = len(node.text)
+            chunk_level = self._determine_chunk_level(text_length)
+            if chunk_level not in nodes_by_level:
+                nodes_by_level[chunk_level] = []
+            nodes_by_level[chunk_level].append(node)
+
         # 转换为字典格式并检查是否有超过最大chunk_size的节点
         result = []
         oversized_nodes = []
+        chunk_counter = 0
 
-        for i, node in enumerate(nodes):
-            node_metadata = metadata.copy() if self.include_metadata else {}
-            node_metadata.update(
-                {
-                    "chunk_index": i,
-                    "total_chunks": len(nodes),
-                    "chunk_size": self.chunk_sizes,
-                    "split_method": "hierarchical",
-                }
-            )
+        # 按层级处理节点，建立父子关系
+        for level in sorted(nodes_by_level.keys()):
+            level_nodes = nodes_by_level[level]
 
-            # 添加节点的元数据
-            if hasattr(node, "metadata") and node.metadata:
-                node_metadata.update(node.metadata)
+            for i, node in enumerate(level_nodes):
+                node_metadata = metadata.copy() if self.include_metadata else {}
 
-            # 检查节点文本长度是否超过最大chunk_size
-            if len(node.text) > self.max_chunk_size:
-                oversized_nodes.append(
-                    {"content": node.text, "metadata": node_metadata}
+                # 根据文本长度确定chunk_level
+                text_length = len(node.text)
+                chunk_level = self._determine_chunk_level(text_length)
+
+                # 生成chunk_id
+                chunk_id = f"{root_id}_L{chunk_level}_{i}"
+
+                # 确定parent_id
+                parent_id = None
+                if chunk_level > 0:
+                    # 找到父级节点（上一层级中包含当前节点的节点）
+                    parent_level = chunk_level - 1
+                    if parent_level in nodes_by_level:
+                        for j, parent_node in enumerate(nodes_by_level[parent_level]):
+                            if node.text in parent_node.text:
+                                parent_id = f"{root_id}_L{parent_level}_{j}"
+                                break
+
+                node_metadata.update(
+                    {
+                        "chunk_id": chunk_id,
+                        "parent_id": parent_id,
+                        "root_id": root_id,
+                        "chunk_index": chunk_counter,
+                        "total_chunks": len(nodes),
+                        "chunk_size": self.chunk_sizes,
+                        "split_method": "hierarchical",
+                        "chunk_level": chunk_level,
+                        "text_length": text_length,
+                    }
                 )
-            else:
-                result.append({"content": node.text, "metadata": node_metadata})
+
+                chunk_counter += 1
+
+                # 添加节点的元数据
+                if hasattr(node, "metadata") and node.metadata:
+                    node_metadata.update(node.metadata)
+
+                # 检查节点文本长度是否超过最大chunk_size
+                if len(node.text) > self.max_chunk_size:
+                    oversized_nodes.append(
+                        {"content": node.text, "metadata": node_metadata}
+                    )
+                else:
+                    result.append({"content": node.text, "metadata": node_metadata})
 
         # 如果有超过最大chunk_size的节点，使用配置化的退化处理
         if oversized_nodes:
-
             fallback_chunks = self._handle_oversized_nodes(oversized_nodes)
+            # 为fallback chunks也添加chunk_level和层级关系字段
+            for i, chunk in enumerate(fallback_chunks):
+                if "chunk_level" not in chunk["metadata"]:
+                    text_length = len(chunk["content"])
+                    chunk["metadata"]["chunk_level"] = self._determine_chunk_level(
+                        text_length
+                    )
+
+                # 为fallback chunks添加必要的字段
+                if "chunk_id" not in chunk["metadata"]:
+                    chunk["metadata"]["chunk_id"] = f"{root_id}_fallback_{i}"
+                if "root_id" not in chunk["metadata"]:
+                    chunk["metadata"]["root_id"] = root_id
+                if "parent_id" not in chunk["metadata"]:
+                    chunk["metadata"]["parent_id"] = None  # fallback chunks没有父节点
+
             result.extend(fallback_chunks)
 
         return result
+
+    def _determine_chunk_level(self, text_length: int) -> int:
+        """根据文本长度确定chunk_level"""
+        # 例如：chunk_sizes = [1536, 512, 128]
+        # Level 0: >= 1024 (大于最大和中等的平均值)
+        # Level 1: 320-1023 (中等和最小的平均值到大中平均值)
+        # Level 2: < 320 (小于中等和最小的平均值)
+
+        if len(self.chunk_sizes) == 1:
+            return 0
+
+        sorted_sizes = sorted(self.chunk_sizes, reverse=True)
+
+        # 为每个层级计算合理的范围
+        for level in range(len(sorted_sizes)):
+            if level == 0:
+                # 最大层级：大于等于最大chunk_size的80%
+                if text_length >= sorted_sizes[0] * 0.8:
+                    return level
+            elif level == len(sorted_sizes) - 1:
+                # 最小层级：所有剩余的
+                return level
+            else:
+                # 中间层级：在当前size的80%到上一个size的80%之间
+                current_size = sorted_sizes[level]
+                if text_length >= current_size * 0.8:
+                    return level
+
+        return len(self.chunk_sizes) - 1
 
 
 class SentenceSplitter(MetadataAwareTextSplitter, BaseSplitter):
@@ -1275,10 +1366,6 @@ class HierarchicalNodeParser(NodeParser, BaseSplitter):
         """分割单个文本"""
         if metadata is None:
             metadata = {}
-
-        # 创建Document对象
-        from llama_index.core.schema import Document
-
         document = Document(text=text, metadata=metadata)
 
         # 使用HierarchicalNodeParser的get_nodes_from_documents方法
@@ -1288,6 +1375,7 @@ class HierarchicalNodeParser(NodeParser, BaseSplitter):
         chunks = []
         for node in nodes:
             chunk_data = {
+                "id": node.node_id,
                 "content": node.text,
                 "metadata": {
                     **metadata,

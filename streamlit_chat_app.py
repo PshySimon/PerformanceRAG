@@ -28,7 +28,7 @@ st.set_page_config(
 )
 
 # 设置日志
-setup_logging(level="INFO")
+setup_logging(level="DEBUG")
 logger = get_logger(__name__)
 
 # 初始化session state
@@ -304,13 +304,27 @@ def format_document_sources(documents: List[Dict[str, Any]]) -> List[Dict[str, A
             or doc.get("metadata", {}).get("source", "").split("/")[-1]
             or f"文档-{doc.get('id', 'N/A')}"
         )
-        sources.append(
-            {
-                "title": title,
-                "content": doc.get("content", "")[:200] + "...",
-                "score": doc.get("score", 0),
-            }
-        )
+        
+        # 提取关键词信息
+        keywords = []
+        if 'highlights' in doc:
+            highlights = doc['highlights']
+            for field, terms_info in highlights.items():
+                if isinstance(terms_info, dict) and 'relevant_terms' in terms_info:
+                    keywords.extend(terms_info['relevant_terms'])
+        
+        content = doc.get("content", "")[:200]
+        if '<mark>' in content:
+            content = content.replace('<mark>', '**').replace('</mark>', '**')
+            
+        source_info = {
+            "title": title,
+            "content": content + "...",
+            "score": doc.get("score", 0),
+            "recall_source": doc.get('recall_source', 'unknown'),
+            "keywords": list(set(keywords)) if keywords else []
+        }
+        sources.append(source_info)
     return sources
 
 
@@ -319,9 +333,16 @@ def render_sources(sources: List[Dict[str, Any]]) -> None:
     if sources:
         with st.expander("📚 参考来源"):
             for i, source in enumerate(sources, 1):
+                recall_icon = "📝" if source.get('recall_source') == "text" else "🎯" if source.get('recall_source') == "vector" else "🔄"
+                
                 st.markdown(
-                    f"**{i}. {source['title']}** (相似度: {source['score']:.2f})"
+                    f"**{i}. {recall_icon} {source['title']}** (相似度: {source['score']:.2f})"
                 )
+                
+                # 显示关键词
+                if source.get('keywords'):
+                    st.markdown(f"🎯 **关键词**: {', '.join(source['keywords'])}")
+                
                 st.markdown(f"> {source['content']}")
                 st.divider()
 
@@ -480,15 +501,54 @@ def render_retriever_results(
 
         if show_document_content:
             for i, doc in enumerate(docs[:5]):
-                with st.expander(f"📄 文档 {i+1} (相似度: {doc.get('score', 0):.3f})"):
+                # 获取召回方式信息
+                recall_source = doc.get('recall_source', 'unknown')
+                recall_icon = "📝" if recall_source == "text" else "🎯" if recall_source == "vector" else "🔄"
+                
+                with st.expander(f"{recall_icon} 文档 {i+1} (相似度: {doc.get('score', 0):.3f}) - {recall_source}召回"):
                     st.write(f"**ID:** {doc.get('id', 'N/A')}")
-                    st.write(f"**内容:** {doc.get('content', '')[:500]}...")
+                    
+                    # 显示关键词高亮信息
+                    if 'highlights' in doc:
+                        st.write("**🎯 命中关键词:**")
+                        highlights = doc['highlights']
+                        for field, terms_info in highlights.items():
+                            if isinstance(terms_info, dict) and 'relevant_terms' in terms_info:
+                                relevant_terms = terms_info['relevant_terms']
+                                if relevant_terms:
+                                    st.write(f"  - **{field}**: {', '.join(relevant_terms)}")
+                    
+                    # 显示内容（保持原有的高亮标记）
+                    content = doc.get('content', '')[:500]
+                    if '<mark>' in content:
+                        # 将HTML标记转换为Streamlit的markdown高亮
+                        content = content.replace('<mark>', '**').replace('</mark>', '**')
+                    st.write(f"**内容:** {content}...")
+                    
                     if doc.get("metadata"):
                         st.write(f"**元数据:** {doc['metadata']}")
         else:
             for i, doc in enumerate(docs[:3]):
+                recall_source = doc.get('recall_source', 'unknown')
+                recall_icon = "📝" if recall_source == "text" else "🎯" if recall_source == "vector" else "🔄"
+                
+                # 显示简化的关键词信息
+                keywords_info = ""
+                if 'highlights' in doc:
+                    highlights = doc['highlights']
+                    all_terms = []
+                    for field, terms_info in highlights.items():
+                        if isinstance(terms_info, dict) and 'relevant_terms' in terms_info:
+                            all_terms.extend(terms_info['relevant_terms'])
+                    if all_terms:
+                        keywords_info = f" [关键词: {', '.join(set(all_terms))}]"
+                
+                content = doc.get('content', '')[:100]
+                if '<mark>' in content:
+                    content = content.replace('<mark>', '**').replace('</mark>', '**')
+                    
                 st.write(
-                    f"**文档 {i+1}** (得分: {doc.get('score', 0):.3f}) - {doc.get('content', '')[:100]}..."
+                    f"**{recall_icon} 文档 {i+1}** (得分: {doc.get('score', 0):.3f}) - {content}...{keywords_info}"
                 )
 
 

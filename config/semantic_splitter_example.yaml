@@ -1,0 +1,39 @@
+# 基于embedding的语义分割Pipeline示例
+components:
+  # 文档加载器
+  document_loader:
+    type: "loader"
+    name: "file"
+    config:
+      path: "/Users/caixiaomeng/Projects/Python/PerformanceRag/test_cases/test_data/test_semantic_splitter.txt"
+      file_types: [".txt", ".md", ".pdf"]
+      encoding: "utf-8"
+      debug: true
+  
+  # 语义分割器（基于embedding）
+  semantic_splitter:
+    type: "splitter"
+    name: "semantic"
+    config:
+      chunk_size: 1024              # 每个chunk的最大字符数
+      chunk_overlap: 50            # 相邻chunk之间的重叠字符数
+      similarity_threshold: 0.5    # 语义相似度阈值（0-1），越高越严格
+      min_chunk_size: 40          # 最小chunk大小
+      max_chunk_size: 1024         # 最大chunk大小阈值
+      embedding_model: "models/bge-m3"  # embedding模型
+      include_metadata: true       # 是否包含元数据
+      # embedding服务配置
+      api_key: "123456"
+      api_base: "http://workspace.featurize.cn:25574/v1"
+      timeout: 60
+      max_retries: 3
+      debug: true
+
+# 流程定义
+flow:
+  document_loader: ["semantic_splitter"]
+  semantic_splitter: []
+
+# 入口点
+entry_points:
+  process: "document_loader"

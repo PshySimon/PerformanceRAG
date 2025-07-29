@@ -113,14 +113,23 @@ class ESIndexerComponent(BaseIndexer):
                 if self.debug:
                     self.logger.debug(f"索引 {target_index} 已存在")
                 return True
-
+    
             body = {"mappings": self.mapping, "settings": self.settings}
             self.client.indices.create(index=target_index, body=body)
-
+    
             if self.debug:
                 self.logger.debug(f"成功创建索引: {target_index}")
             return True
-
+    
+        except RequestError as e:
+            # 处理索引已存在的情况
+            if e.error == 'resource_already_exists_exception':
+                if self.debug:
+                    self.logger.debug(f"索引 {target_index} 已存在（并发创建）")
+                return True
+            else:
+                self.logger.error(f"创建索引失败: {e}")
+                return False
         except Exception as e:
             self.logger.error(f"创建索引失败: {e}")
             return False
@@ -138,17 +147,29 @@ class ESIndexerComponent(BaseIndexer):
         try:
             # 确保索引存在
             self.create_index(target_index)
-
+    
             if self.debug:
                 self.logger.debug(f"开始索引 {len(documents)} 个文档到 {target_index}")
-
+    
             # 准备批量操作
             actions = []
             for i, doc in enumerate(documents):
-                doc_id = doc.get("id", f"doc_{i}")
+                # 🔧 修复：生成全局唯一ID
+                if "id" not in doc:
+                    # 尝试从metadata中获取node_id
+                    if "metadata" in doc and "node_id" in doc["metadata"]:
+                        doc_id = doc["metadata"]["node_id"]
+                    else:
+                        # 使用时间戳和随机数生成唯一ID
+                        import time
+                        import uuid
+                        doc_id = f"doc_{int(time.time() * 1000000)}_{uuid.uuid4().hex[:8]}"
+                else:
+                    doc_id = doc["id"]
+                    
                 action = {"_index": target_index, "_id": doc_id, "_source": doc}
                 actions.append(action)
-
+    
             # 优化的批量索引
             try:
                 success_count, failed_items = bulk(

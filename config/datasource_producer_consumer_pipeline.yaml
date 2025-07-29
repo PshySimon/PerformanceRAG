@@ -18,16 +18,16 @@ datasource:
       type: "splitter"
       name: "hierarchical"
       config:
-        chunk_sizes: [512, 256]
+        chunk_sizes: [1536, 512, 128]
         chunk_overlap: 50
         include_metadata: true
-        max_chunk_size: 600
+        max_chunk_size: 3072
         fallback_config:
           primary:
             type: "text"
             split_method: "character"
-            chunk_size: 400
-            chunk_overlap: 50
+            chunk_size: 1024
+            chunk_overlap: 100
             include_metadata: true
         debug: true
   
@@ -45,8 +45,8 @@ producer:
       config:
         model: "models/bge-m3"
         api_key: "123456"
-        api_base: "http://workspace.featurize.cn:33336/v1"
-        batch_size: 150  # 缓存大小，凑齐100条再请求
+        api_base: "http://workspace.featurize.cn:38819/v1"
+        batch_size: 50
         timeout: 60
         max_retries: 3
         debug: true
@@ -69,28 +69,80 @@ consumer:
         password: "sPxLec=NGSFmUT_7+74R"
         use_ssl: true
         verify_certs: false
-        batch_size: 100  # 减少batch_size，避免超时
+        batch_size: 100
         timeout: 30
         debug: true
-        # 优化ES索引设置
-        index_settings:
+        # ES jieba插件设置
+        settings:
           number_of_shards: 1
-          number_of_replicas: 0  # 禁用副本提高写入速度
-          refresh_interval: "30s"  # 延长刷新间隔
+          number_of_replicas: 0
+          refresh_interval: "30s"
           translog:
-            durability: "async"  # 异步事务日志
+            durability: "async"
+          analysis:
+            analyzer:
+              ik_analyzer:
+                type: "ik_max_word"
+              ik_search_analyzer:
+                type: "ik_smart"
+        # 支持Small2Big的层级索引映射
         mapping:
           properties:
             content:
               type: "text"
-              analyzer: "standard"
+              analyzer: "ik_analyzer"
+              search_analyzer: "ik_search_analyzer"
+            content_jieba:
+              type: "text"
+              analyzer: "ik_analyzer"
+              search_analyzer: "ik_search_analyzer"
             content_vector:
               type: "dense_vector"
-              dims: 1024  # 需要改为 BGE-M3 的实际维度
+              dims: 1024
               index: true
               similarity: "cosine"
             metadata:
               type: "object"
+              properties:
+                source:
+                  type: "text"
+                  analyzer: "ik_analyzer"
+                  fields:
+                    keyword:
+                      type: "keyword"
+                file_path:
+                  type: "text"
+                  analyzer: "ik_analyzer"
+                filename:
+                  type: "keyword"
+                  index: false
+                file_type:
+                  type: "keyword"
+                chunk_index:
+                  type: "integer"
+                total_chunks:
+                  type: "integer"
+                chunk_size:
+                  type: "integer"
+                split_method:
+                  type: "keyword"
+                
+                # Small2Big相关字段
+                chunk_level:
+                  type: "integer"          # chunk层级: 0=大, 1=中, 2=小
+                parent_id:
+                  type: "keyword"          # 父chunk的ID
+                child_ids:
+                  type: "keyword"          # 子chunk的ID列表
+                  index: false
+                root_id:
+                  type: "keyword"          # 根chunk的ID
+                hierarchy_path:
+                  type: "keyword"          # 层级路径，如 "0/1/2"
+                  index: false
+                original_chunk_size:
+                  type: "integer"          # 原始chunk大小配置
+                  index: false
             timestamp:
               type: "date"
   
@@ -101,10 +153,10 @@ consumer:
   
   # 消费者配置
   config:
-    batch_size: 50        # 增加批次大小
-    max_queue_size: 2000  # 减少队列大小
-    producer_tasks: 3   # 增加生产者线程
-    consumer_tasks: 3   # 减少消费者线程
+    batch_size: 50
+    max_queue_size: 2000
+    producer_tasks: 4
+    consumer_tasks: 4
     timeout: 30
-    rate_limit_per_second: 100  # 提高速率限制
-    preload_all_data: true  # 新增：启用预加载模式
+    rate_limit_per_second: 100
+    preload_all_data: true
