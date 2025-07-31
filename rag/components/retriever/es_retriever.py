@@ -16,7 +16,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
 
         if Elasticsearch is None:
             raise ImportError("请安装elasticsearch包: pip install elasticsearch")
-            
+
         # 优先检索的chunk_level
         self.preferred_chunk_level = config.get("preferred_chunk_level")
 
@@ -31,19 +31,27 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         # 检索配置
         self.search_type = config.get("search_type", "text")  # text, vector, hybrid
         self.embedding_config = config.get("embedding", {})
-        
+
         # Small2Big检索配置
         self.enable_small2big = config.get("enable_small2big", False)
         small2big_config = config.get("small2big_config", {})
         self.small_chunk_top_k = small2big_config.get("small_chunk_top_k", 20)
         self.final_top_k = small2big_config.get("final_top_k", 10)
-        self.expansion_strategy = small2big_config.get("expansion_strategy", "parent_expansion")
-        self.similarity_threshold_small = small2big_config.get("similarity_threshold_small", 0.6)
+        self.expansion_strategy = small2big_config.get(
+            "expansion_strategy", "parent_expansion"
+        )
+        self.similarity_threshold_small = small2big_config.get(
+            "similarity_threshold_small", 0.6
+        )
         self.score_fusion_method = small2big_config.get("score_fusion_method", "max")
-        self.enable_score_normalization = small2big_config.get("enable_score_normalization", True)
+        self.enable_score_normalization = small2big_config.get(
+            "enable_score_normalization", True
+        )
         self.diversity_threshold = small2big_config.get("diversity_threshold", 0.8)
-        self.max_small_chunks_per_big = small2big_config.get("max_small_chunks_per_big", 5)
-        
+        self.max_small_chunks_per_big = small2big_config.get(
+            "max_small_chunks_per_big", 5
+        )
+
         # RRF配置
         self.fusion_method = config.get("fusion_method", "weighted")  # weighted, rrf
         self.rrf_k = config.get("rrf_k", 60)  # RRF参数
@@ -60,16 +68,20 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 "metadata.tags": 1.0,
             },
         )
-        
+
         # 添加分析器配置读取
         self.analyzer_config = config.get("analyzer_config", {})
-        self.search_analyzer = self.analyzer_config.get("search_analyzer", "ik_search_analyzer")
+        self.search_analyzer = self.analyzer_config.get(
+            "search_analyzer", "ik_search_analyzer"
+        )
         self.index_analyzer = self.analyzer_config.get("index_analyzer", "ik_analyzer")
-        
+
         # 添加高亮配置读取
         self.highlight_config = config.get("highlight_config", {})
         self.default_highlight_settings = {
-            "require_field_match": self.highlight_config.get("require_field_match", False),
+            "require_field_match": self.highlight_config.get(
+                "require_field_match", False
+            ),
             "fragment_size": self.highlight_config.get("fragment_size", 150),
             "number_of_fragments": self.highlight_config.get("number_of_fragments", 3),
             "pre_tags": self.highlight_config.get("pre_tags", ["<mark>"]),
@@ -90,7 +102,9 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 self._init_embedding_client()
 
             if self.debug:
-                self.logger.debug(f"ES检索器初始化完成，检索类型: {self.search_type}, 融合方法: {self.fusion_method}")
+                self.logger.debug(
+                    f"ES检索器初始化完成，检索类型: {self.search_type}, 融合方法: {self.fusion_method}"
+                )
 
         except Exception as e:
             self.logger.error(f"初始化ES检索器失败: {e}")
@@ -177,7 +191,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
             # 如果启用Small2Big检索
             if self.enable_small2big:
                 return self._small2big_search(query, use_top_k)
-            
+
             # 原有检索逻辑
             if self.search_type == "text":
                 return self._text_search(query, use_top_k)
@@ -198,43 +212,51 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         """Small2Big检索策略实现"""
         if self.debug:
             self.logger.info(f"🔍 开始Small2Big检索 - 查询: '{query}'")
-            self.logger.info(f"   第一阶段: 检索Small Chunk (目标数量: {self.small_chunk_top_k})")
-        
+            self.logger.info(
+                f"   第一阶段: 检索Small Chunk (目标数量: {self.small_chunk_top_k})"
+            )
+
         # 第一阶段：检索Small Chunk
         small_chunks = self._search_small_chunks(query, self.small_chunk_top_k)
-        
+
         if not small_chunks:
             self.logger.warning("⚠️ Small Chunk检索无结果")
             return []
-        
+
         if self.debug:
-            self.logger.info(f"   ✅ Small Chunk检索完成，获得 {len(small_chunks)} 个结果")
-            self.logger.info(f"   第二阶段: 扩展到Big Chunk并融合分数")
-        
+            self.logger.info(
+                f"   ✅ Small Chunk检索完成，获得 {len(small_chunks)} 个结果"
+            )
+            self.logger.info("   第二阶段: 扩展到Big Chunk并融合分数")
+
         # 第二阶段：根据策略扩展到Big Chunk
         big_chunks = self._expand_to_big_chunks(small_chunks)
-        
+
         if self.debug:
             self.logger.info(f"   ✅ 扩展完成，获得 {len(big_chunks)} 个Big Chunk")
-            self.logger.info(f"   第三阶段: 分数融合和重排序")
-        
+            self.logger.info("   第三阶段: 分数融合和重排序")
+
         # 第三阶段：分数融合和重排序
         final_results = self._fuse_and_rerank(big_chunks, top_k)
-        
+
         if self.debug:
-            self.logger.info(f"🎯 Small2Big检索完成，最终返回 {len(final_results)} 个结果")
+            self.logger.info(
+                f"🎯 Small2Big检索完成，最终返回 {len(final_results)} 个结果"
+            )
             for i, result in enumerate(final_results[:5], 1):  # 显示前5个结果
-                self.logger.debug(f"   #{i} ID: {result['id']}, 分数: {result['score']:.4f}, 来源Small Chunk数: {result.get('source_small_chunks_count', 1)}")
-        
+                self.logger.debug(
+                    f"   #{i} ID: {result['id']}, 分数: {result['score']:.4f}, 来源Small Chunk数: {result.get('source_small_chunks_count', 1)}"
+                )
+
         return final_results
-    
+
     def _build_highlight_fields(self) -> Dict[str, Any]:
         """动态构建高亮字段配置"""
         highlight_fields = {}
-        
+
         # 从配置中获取字段特定的高亮设置
         field_configs = self.highlight_config.get("fields", {})
-        
+
         # 为所有搜索字段添加高亮配置
         for field in self.search_fields.keys():
             if field in field_configs:
@@ -245,43 +267,42 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 # 使用默认配置
                 highlight_fields[field] = {
                     "fragment_size": self.default_highlight_settings["fragment_size"],
-                    "number_of_fragments": self.default_highlight_settings["number_of_fragments"],
+                    "number_of_fragments": self.default_highlight_settings[
+                        "number_of_fragments"
+                    ],
                     "pre_tags": self.default_highlight_settings["pre_tags"],
-                    "post_tags": self.default_highlight_settings["post_tags"]
+                    "post_tags": self.default_highlight_settings["post_tags"],
                 }
-        
+
         # 特别处理 content_jieba 字段，确保使用正确的分析器
         if "content_jieba" in highlight_fields:
             highlight_fields["content_jieba"]["analyzer"] = self.search_analyzer
-            
+
         if self.debug:
             self.logger.debug(f"🎨 构建的高亮字段配置: {highlight_fields}")
-            
+
         return highlight_fields
 
     def _search_small_chunks(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """检索Small Chunk - 动态检测版本"""
         # 动态检测chunk_level字段路径和值
         chunk_level_info = self._detect_chunk_level_config()
-        
+
         if not chunk_level_info:
             self.logger.warning("无法检测chunk_level配置，使用默认值")
-            chunk_level_filter = {
-                "term": {
-                    "metadata.chunk_level": 2  # 回退到默认值
-                }
-            }
+            chunk_level_filter = {"term": {"metadata.chunk_level": 2}}  # 回退到默认值
         else:
             chunk_level_filter = {
                 "term": {
-                    chunk_level_info["field_path"]: chunk_level_info["small_chunk_level"]
+                    chunk_level_info["field_path"]: chunk_level_info[
+                        "small_chunk_level"
+                    ]
                 }
             }
-        
+
         if self.debug:
             self.logger.debug(f"🔍 Small Chunk过滤条件: {chunk_level_filter}")
 
-        
         if self.search_type == "hybrid":
             # 混合检索Small Chunk
             return self._hybrid_search_with_filter(query, top_k, chunk_level_filter)
@@ -290,13 +311,15 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         else:
             return self._text_search_with_filter(query, top_k, chunk_level_filter)
 
-    def _expand_to_big_chunks(self, small_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _expand_to_big_chunks(
+        self, small_chunks: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """将Small Chunk扩展到Big Chunk"""
         big_chunk_groups = {}
-        
+
         for small_chunk in small_chunks:
             metadata = small_chunk.get("metadata", {})
-            
+
             if self.expansion_strategy == "parent_expansion":
                 # 通过parent_id扩展
                 parent_id = metadata.get("parent_id")
@@ -306,15 +329,14 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                             "small_chunks": [],
                             "max_score": 0,
                             "avg_score": 0,
-                            "big_chunk_data": None
+                            "big_chunk_data": None,
                         }
-                    
+
                     big_chunk_groups[parent_id]["small_chunks"].append(small_chunk)
                     big_chunk_groups[parent_id]["max_score"] = max(
-                        big_chunk_groups[parent_id]["max_score"], 
-                        small_chunk["score"]
+                        big_chunk_groups[parent_id]["max_score"], small_chunk["score"]
                     )
-            
+
             elif self.expansion_strategy == "root_expansion":
                 # 通过root_id扩展到最大粒度
                 root_id = metadata.get("root_id")
@@ -324,25 +346,24 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                             "small_chunks": [],
                             "max_score": 0,
                             "avg_score": 0,
-                            "big_chunk_data": None
+                            "big_chunk_data": None,
                         }
-                    
+
                     big_chunk_groups[root_id]["small_chunks"].append(small_chunk)
                     big_chunk_groups[root_id]["max_score"] = max(
-                        big_chunk_groups[root_id]["max_score"], 
-                        small_chunk["score"]
+                        big_chunk_groups[root_id]["max_score"], small_chunk["score"]
                     )
-        
+
         # 获取Big Chunk的完整内容
         for big_chunk_id, group_data in big_chunk_groups.items():
             big_chunk_content = self._get_big_chunk_content(big_chunk_id)
             if big_chunk_content:
                 group_data["big_chunk_data"] = big_chunk_content
-                
+
                 # 计算平均分数
                 scores = [chunk["score"] for chunk in group_data["small_chunks"]]
                 group_data["avg_score"] = sum(scores) / len(scores)
-        
+
         return big_chunk_groups
 
     def _get_big_chunk_content(self, big_chunk_id: str) -> Optional[Dict[str, Any]]:
@@ -350,36 +371,34 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         try:
             # 使用 .keyword 字段进行精确匹配
             search_body = {
-                "query": {
-                    "term": {
-                        "metadata.chunk_id.keyword": big_chunk_id
-                    }
-                },
-                "size": 1
+                "query": {"term": {"metadata.chunk_id.keyword": big_chunk_id}},
+                "size": 1,
             }
-            
+
             response = self.client.search(index=self.index_name, body=search_body)
-            
+
             if response["hits"]["total"]["value"] > 0:
                 hit = response["hits"]["hits"][0]
                 return {
                     "id": hit["_id"],
                     "content": hit["_source"].get("content", ""),
-                    "metadata": hit["_source"].get("metadata", {})
+                    "metadata": hit["_source"].get("metadata", {}),
                 }
         except Exception as e:
             if self.debug:
                 self.logger.warning(f"获取Big Chunk {big_chunk_id} 失败: {e}")
         return None
 
-    def _fuse_and_rerank(self, big_chunk_groups: Dict, top_k: int) -> List[Dict[str, Any]]:
+    def _fuse_and_rerank(
+        self, big_chunk_groups: Dict, top_k: int
+    ) -> List[Dict[str, Any]]:
         """融合分数并重新排序"""
         results = []
-        
+
         for big_chunk_id, group_data in big_chunk_groups.items():
             if not group_data["big_chunk_data"]:
                 continue
-            
+
             # 根据融合方法计算最终分数
             if self.score_fusion_method == "max":
                 final_score = group_data["max_score"]
@@ -389,10 +408,12 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 # 加权平均，分数越高权重越大
                 scores = [chunk["score"] for chunk in group_data["small_chunks"]]
                 weights = [score / sum(scores) for score in scores]
-                final_score = sum(score * weight for score, weight in zip(scores, weights))
+                final_score = sum(
+                    score * weight for score, weight in zip(scores, weights)
+                )
             else:
                 final_score = group_data["max_score"]
-            
+
             result = {
                 "id": big_chunk_id,
                 "score": final_score,
@@ -403,94 +424,124 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 "source_small_chunks_count": len(group_data["small_chunks"]),
                 "max_small_score": group_data["max_score"],
                 "avg_small_score": group_data["avg_score"],
-                "fusion_method": self.score_fusion_method
+                "fusion_method": self.score_fusion_method,
             }
-            
+
             results.append(result)
-        
+
         # 按分数排序并返回top_k
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
 
-    def _hybrid_search_with_filter(self, query: str, top_k: int, filter_clause: Dict) -> List[Dict[str, Any]]:
-        """带过滤条件的混合检索"""
+    def _hybrid_search_with_filter(
+        self, query: str, top_k: int, filter_clause: Dict
+    ) -> List[Dict[str, Any]]:
+        """带过滤条件的混合检索 - 支持差异化chunk level"""
         if not self.embedding_client:
             raise RuntimeError("混合检索需要embedding客户端")
-        
+
         vector_field = self.embedding_config.get("field_name", "embedding")
         query_embedding = self.embedding_client.embed_text(query)
+
+        # 检查是否启用差异化检索
+        enable_differential = self.small2big_config.get("enable_differential_retrieval", False)
         
-        # 文本检索部分
+        if enable_differential:
+            # 差异化检索：向量检索使用small chunk，文本检索使用big chunk
+            vector_chunk_level = self.small2big_config.get("vector_chunk_level", 2)
+            text_chunk_level = self.small2big_config.get("text_chunk_level", 0)
+            
+            # 向量检索过滤条件（small chunk）
+            vector_filter_clauses = [filter_clause, {"term": {"metadata.chunk_level": vector_chunk_level}}]
+            
+            # 文本检索过滤条件（big chunk）
+            text_filter_clauses = [filter_clause, {"term": {"metadata.chunk_level": text_chunk_level}}]
+            
+            if self.debug:
+                self.logger.info(f"🔄 差异化检索策略：向量检索chunk_level={vector_chunk_level}，文本检索chunk_level={text_chunk_level}")
+        else:
+            # 传统方式：使用相同的过滤条件
+            vector_filter_clauses = text_filter_clauses = [filter_clause]
+
+        # 文本检索部分（BM25 + big chunk）
         should_queries = []
         for field, boost in self.search_fields.items():
-            should_queries.append({"match": {field: {"query": query, "boost": boost, "analyzer": self.search_analyzer}}})
-        
-        filter_clauses = [filter_clause]
-        if preferred_chunk_level := self.config.get("preferred_chunk_level"):
-            filter_clauses.append({
-                "term": {
-                    "metadata.chunk_level": preferred_chunk_level
+            should_queries.append({
+                "match": {
+                    field: {
+                        "query": query,
+                        "boost": boost,
+                        "analyzer": self.search_analyzer,
+                    }
                 }
             })
-        
+
         text_search_body = {
-            "query": {
-                "bool": {
-                    "should": should_queries,
-                    "filter": filter_clauses
-                }
-            },
+            "query": {"bool": {"should": should_queries, "filter": text_filter_clauses}},
             "size": top_k * 2,
         }
-        
-        # 向量检索部分
+
+        # 向量检索部分（向量 + small chunk）
         vector_search_body = {
             "knn": {
                 "field": vector_field,
                 "query_vector": query_embedding,
                 "k": top_k * 2,
                 "num_candidates": top_k * 4,
-                "filter": {
-                    "bool": {
-                        "filter": filter_clauses
-                    }
-                }
+                "filter": {"bool": {"filter": vector_filter_clauses}},
             },
             "size": top_k * 2,
         }
-        
+
+        # 执行检索
         text_response = self.client.search(index=self.index_name, body=text_search_body)
         vector_response = self.client.search(index=self.index_name, body=vector_search_body)
-        
+
         # 使用现有的融合方法
         if self.fusion_method == "rrf":
-            return self._merge_hybrid_results_with_rrf(text_response, vector_response, query, top_k)
+            return self._merge_hybrid_results_with_rrf(
+                text_response, vector_response, query, top_k
+            )
         else:
-            return self._merge_hybrid_results_with_highlights(text_response, vector_response, query, top_k)
+            return self._merge_hybrid_results_with_highlights(
+                text_response, vector_response, query, top_k
+            )
 
     def _text_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """文本检索"""
         # 动态构建查询字段
         should_queries = []
-        
+
         for field, boost in self.search_fields.items():
-            should_queries.append({"match": {field: {"query": query, "boost": boost, "analyzer": self.search_analyzer}}})
-        
+            should_queries.append(
+                {
+                    "match": {
+                        field: {
+                            "query": query,
+                            "boost": boost,
+                            "analyzer": self.search_analyzer,
+                        }
+                    }
+                }
+            )
+
         # 🔧 使用新的高亮字段构建方法
         highlight_fields = self._build_highlight_fields()
-        
+
         search_body = {
             "query": {"bool": {"should": should_queries}},
             "highlight": {
                 "fields": highlight_fields,
-                "require_field_match": self.default_highlight_settings["require_field_match"]
+                "require_field_match": self.default_highlight_settings[
+                    "require_field_match"
+                ],
             },
             "size": top_k,
         }
-        
+
         if self.debug:
             self.logger.debug(f"📝 文本检索查询体: {search_body}")
-        
+
         response = self.client.search(index=self.index_name, body=search_body)
         return self._format_results_with_highlights(response, query, "文本检索")
 
@@ -501,7 +552,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
 
         # 获取向量字段名
         vector_field = self.embedding_config.get("field_name", "embedding")
-        
+
         # 生成查询向量
         if self.debug:
             self.logger.debug(f"🔢 正在生成向量检索查询向量: '{query}'")
@@ -530,27 +581,36 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         response = self.client.search(index=self.index_name, body=vector_search_body)
         return self._format_results_with_highlights(response, query, "向量检索")
 
-    def _text_search_with_filter(self, query: str, top_k: int, filter_clause: Dict) -> List[Dict[str, Any]]:
+    def _text_search_with_filter(
+        self, query: str, top_k: int, filter_clause: Dict
+    ) -> List[Dict[str, Any]]:
         """带过滤器的文本检索"""
         # 动态构建查询字段
         should_queries = []
-        
+
         for field, boost in self.search_fields.items():
-            should_queries.append({"match": {field: {"query": query, "boost": boost, "analyzer": self.search_analyzer}}})
+            should_queries.append(
+                {
+                    "match": {
+                        field: {
+                            "query": query,
+                            "boost": boost,
+                            "analyzer": self.search_analyzer,
+                        }
+                    }
+                }
+            )
 
         # 使用动态高亮字段构建方法
         highlight_fields = self._build_highlight_fields()
 
         search_body = {
-            "query": {
-                "bool": {
-                    "should": should_queries,
-                    "filter": filter_clause
-                }
-            },
+            "query": {"bool": {"should": should_queries, "filter": filter_clause}},
             "highlight": {
                 "fields": highlight_fields,
-                "require_field_match": self.highlight_config.get("require_field_match", False)
+                "require_field_match": self.highlight_config.get(
+                    "require_field_match", False
+                ),
             },
             "size": top_k,
         }
@@ -565,54 +625,54 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         """动态检测chunk_level配置"""
         try:
             # 检测字段路径
-            possible_paths = ['chunk_level', 'metadata.chunk_level']
-            
+            possible_paths = ["chunk_level", "metadata.chunk_level"]
+
             for path in possible_paths:
-                test_query = {
-                    "query": {"exists": {"field": path}},
-                    "size": 1
-                }
-                
+                test_query = {"query": {"exists": {"field": path}}, "size": 1}
+
                 result = self.client.search(index=self.index_name, body=test_query)
-                if result['hits']['total']['value'] > 0:
+                if result["hits"]["total"]["value"] > 0:
                     # 获取该字段的所有值
                     agg_query = {
                         "size": 0,
-                        "aggs": {
-                            "levels": {
-                                "terms": {"field": path, "size": 10}
-                            }
-                        }
+                        "aggs": {"levels": {"terms": {"field": path, "size": 10}}},
                     }
-                    
-                    agg_result = self.client.search(index=self.index_name, body=agg_query)
-                    levels = [bucket['key'] for bucket in agg_result['aggregations']['levels']['buckets']]
-                    
+
+                    agg_result = self.client.search(
+                        index=self.index_name, body=agg_query
+                    )
+                    levels = [
+                        bucket["key"]
+                        for bucket in agg_result["aggregations"]["levels"]["buckets"]
+                    ]
+
                     if levels:
                         # 选择最大的level作为small chunk level
                         small_chunk_level = max(levels)
-                        
+
                         return {
                             "field_path": path,
                             "small_chunk_level": small_chunk_level,
-                            "available_levels": levels
+                            "available_levels": levels,
                         }
-            
+
             return None
-            
+
         except Exception as e:
             if self.debug:
                 self.logger.error(f"检测chunk_level配置失败: {e}")
             return None
 
-    def _vector_search_with_filter(self, query: str, top_k: int, filter_clause: Dict) -> List[Dict[str, Any]]:
+    def _vector_search_with_filter(
+        self, query: str, top_k: int, filter_clause: Dict
+    ) -> List[Dict[str, Any]]:
         """带过滤器的向量检索"""
         if not self.embedding_client:
             raise RuntimeError("向量检索需要embedding客户端")
 
         # 获取向量字段名
         vector_field = self.embedding_config.get("field_name", "embedding")
-        
+
         # 生成查询向量
         if self.debug:
             self.logger.debug(f"🔢 正在生成向量检索查询向量: '{query}'")
@@ -631,7 +691,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 "query_vector": query_embedding,
                 "k": top_k,
                 "num_candidates": top_k * 4,
-                "filter": filter_clause
+                "filter": filter_clause,
             },
             "size": top_k,
         }
@@ -662,7 +722,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
             # 提取高亮信息
             highlights = hit.get("highlight", {})
             matched_terms = self._extract_matched_terms(highlights, query)
-            
+
             result = {
                 "id": hit["_id"],
                 "score": hit["_score"],
@@ -702,9 +762,11 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                         for field, terms in matched_terms.items():
                             if terms and isinstance(terms, dict):
                                 # 优先显示相关词汇，如果没有则显示所有词汇
-                                relevant_terms = terms.get('relevant_terms', [])
-                                all_terms = terms.get('all_terms', [])
-                                display_terms = relevant_terms if relevant_terms else all_terms
+                                relevant_terms = terms.get("relevant_terms", [])
+                                all_terms = terms.get("all_terms", [])
+                                display_terms = (
+                                    relevant_terms if relevant_terms else all_terms
+                                )
                                 if display_terms:
                                     self.logger.debug(
                                         f"      📍 {field}: {', '.join(display_terms)}"
@@ -758,44 +820,47 @@ class ESRetrieverComponent(BaseRetrieverComponent):
     def _extract_matched_terms(self, highlights: dict, query: str) -> dict:
         """从高亮信息中提取匹配的词汇"""
         matched_terms = {}
-        
+
         # 分析查询词
         query_terms = set(query.lower().split())
-    
+
         for field, fragments in highlights.items():
             field_terms = set()
             relevant_terms = set()  # 与查询相关的词汇
-    
+
             for fragment in fragments:
                 # 提取被标记的词汇
                 import re
-    
-                marked_words = re.findall(r'<mark>(.*?)</mark>', fragment)
+
+                marked_words = re.findall(r"<mark>(.*?)</mark>", fragment)
                 for word in marked_words:
                     # 清理和标准化词汇
-                    clean_word = re.sub(r'[^\w\u4e00-\u9fff]', '', word.lower())
+                    clean_word = re.sub(r"[^\w\u4e00-\u9fff]", "", word.lower())
                     if clean_word:
                         field_terms.add(clean_word)
                         # 检查是否与查询词相关（完全匹配或包含关系）
-                        if any(clean_word in qterm or qterm in clean_word for qterm in query_terms):
+                        if any(
+                            clean_word in qterm or qterm in clean_word
+                            for qterm in query_terms
+                        ):
                             relevant_terms.add(clean_word)
-    
+
             if field_terms:
                 matched_terms[field] = {
-                    'all_terms': list(field_terms),
-                    'relevant_terms': list(relevant_terms)
+                    "all_terms": list(field_terms),
+                    "relevant_terms": list(relevant_terms),
                 }
-    
+
         return matched_terms
 
     def _hybrid_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """混合检索（文本+向量）- 支持RRF和加权融合"""
         if not self.embedding_client:
             raise RuntimeError("混合检索需要embedding客户端")
-    
+
         # 获取向量字段名
         vector_field = self.embedding_config.get("field_name", "embedding")
-        
+
         # 生成查询向量
         if self.debug:
             self.logger.debug(f"🔢 正在生成混合检索查询向量: '{query}'")
@@ -816,7 +881,15 @@ class ESRetrieverComponent(BaseRetrieverComponent):
             # 对于混合检索，适当降低文本检索的权重
             adjusted_boost = boost * 0.8  # 降低20%权重给向量检索留空间
             should_queries.append(
-                {"match": {field: {"query": query, "boost": adjusted_boost, "analyzer": self.search_analyzer}}}
+                {
+                    "match": {
+                        field: {
+                            "query": query,
+                            "boost": adjusted_boost,
+                            "analyzer": self.search_analyzer,
+                        }
+                    }
+                }
             )
 
             # 为所有查询字段添加高亮（之前只为部分字段添加）
@@ -914,41 +987,47 @@ class ESRetrieverComponent(BaseRetrieverComponent):
             highlights_map[doc_id] = hit.get("highlight", {})
 
             if self.debug:
-                matched_terms = self._extract_matched_terms(highlights_map[doc_id], query)
+                matched_terms = self._extract_matched_terms(
+                    highlights_map[doc_id], query
+                )
                 terms_info = []
                 for field, terms in matched_terms.items():
                     if terms and isinstance(terms, dict):
-                        relevant_terms = terms.get('relevant_terms', [])
-                        all_terms = terms.get('all_terms', [])
+                        relevant_terms = terms.get("relevant_terms", [])
+                        all_terms = terms.get("all_terms", [])
                         # 优先显示相关词汇，如果没有则显示所有高亮词汇
                         display_terms = relevant_terms if relevant_terms else all_terms
                         if display_terms:
                             terms_info.append(f"{field}: {', '.join(display_terms)}")
                     elif terms and isinstance(terms, list):
                         terms_info.append(f"{field}: {', '.join(terms)}")
-                
-                final_terms_info = ', '.join(terms_info) if terms_info else '无'
+
+                final_terms_info = ", ".join(terms_info) if terms_info else "无"
                 # 添加高亮信息调试
                 highlight_info = highlights_map[doc_id]
                 self.logger.debug(f"🔍 文档 {doc_id} 的高亮信息: {highlight_info}")
-                
-                matched_terms = self._extract_matched_terms(highlights_map[doc_id], query)
+
+                matched_terms = self._extract_matched_terms(
+                    highlights_map[doc_id], query
+                )
                 self.logger.debug(f"🎯 文档 {doc_id} 提取的匹配词: {matched_terms}")
-                
+
                 terms_info = []
                 for field, terms in matched_terms.items():
                     if terms and isinstance(terms, dict):
-                        relevant_terms = terms.get('relevant_terms', [])
-                        all_terms = terms.get('all_terms', [])
+                        relevant_terms = terms.get("relevant_terms", [])
+                        all_terms = terms.get("all_terms", [])
                         # 优先显示相关词汇，如果没有则显示所有高亮词汇
                         display_terms = relevant_terms if relevant_terms else all_terms
-                        self.logger.debug(f"📋 字段 {field}: relevant_terms={relevant_terms}, all_terms={all_terms}, display_terms={display_terms}")
+                        self.logger.debug(
+                            f"📋 字段 {field}: relevant_terms={relevant_terms}, all_terms={all_terms}, display_terms={display_terms}"
+                        )
                         if display_terms:
                             terms_info.append(f"{field}: {', '.join(display_terms)}")
                     elif terms and isinstance(terms, list):
                         terms_info.append(f"{field}: {', '.join(terms)}")
-                
-                final_terms_info = ', '.join(terms_info) if terms_info else '无'
+
+                final_terms_info = ", ".join(terms_info) if terms_info else "无"
                 self.logger.debug(
                     f"📝 文本召回文档: {doc_id}, 排名: {rank}, 分数: {hit['_score']:.4f}, 命中词: {final_terms_info}"
                 )
@@ -975,28 +1054,32 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         rrf_results = []
 
         for doc_id in all_doc_ids:
-            text_rank = text_ranks.get(doc_id, float('inf'))
-            vector_rank = vector_ranks.get(doc_id, float('inf'))
-            
+            text_rank = text_ranks.get(doc_id, float("inf"))
+            vector_rank = vector_ranks.get(doc_id, float("inf"))
+
             # 计算RRF分数
             rrf_score = 0
-            if text_rank != float('inf'):
+            if text_rank != float("inf"):
                 rrf_score += 1 / (self.rrf_k + text_rank)
-            if vector_rank != float('inf'):
+            if vector_rank != float("inf"):
                 rrf_score += 1 / (self.rrf_k + vector_rank)
-            
+
             # 确定召回来源
-            if text_rank != float('inf') and vector_rank != float('inf'):
+            if text_rank != float("inf") and vector_rank != float("inf"):
                 recall_source = "hybrid"
                 doc_info = {**text_docs[doc_id], **vector_docs[doc_id]}
-            elif text_rank != float('inf'):
+            elif text_rank != float("inf"):
                 recall_source = "text"
-                doc_info = {**text_docs[doc_id], "vector_score": 0.0, "vector_rank": None}
+                doc_info = {
+                    **text_docs[doc_id],
+                    "vector_score": 0.0,
+                    "vector_rank": None,
+                }
             else:
                 recall_source = "vector"
                 doc_info = {**vector_docs[doc_id], "text_score": 0.0, "text_rank": None}
                 highlights_map[doc_id] = {}  # 向量检索没有高亮
-            
+
             result = {
                 "id": doc_id,
                 "score": rrf_score,  # 使用RRF分数作为最终分数
@@ -1008,14 +1091,16 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 "text_rank": doc_info.get("text_rank"),
                 "vector_rank": doc_info.get("vector_rank"),
                 "rrf_score": rrf_score,
-                "highlights": self._extract_matched_terms(highlights_map.get(doc_id, {}), query),
+                "highlights": self._extract_matched_terms(
+                    highlights_map.get(doc_id, {}), query
+                ),
             }
-            
+
             rrf_results.append(result)
 
         # 按RRF分数排序
         rrf_results.sort(key=lambda x: x["rrf_score"], reverse=True)
-        
+
         # 取top_k并应用相似度阈值过滤
         final_results = []
         for result in rrf_results[:top_k]:
@@ -1027,8 +1112,12 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         if self.debug:
             self.logger.debug("📊 RRF混合检索结果统计:")
             text_only = sum(1 for r in final_results if r["recall_source"] == "text")
-            vector_only = sum(1 for r in final_results if r["recall_source"] == "vector")
-            hybrid_both = sum(1 for r in final_results if r["recall_source"] == "hybrid")
+            vector_only = sum(
+                1 for r in final_results if r["recall_source"] == "vector"
+            )
+            hybrid_both = sum(
+                1 for r in final_results if r["recall_source"] == "hybrid"
+            )
 
             self.logger.debug(f"   📝 仅文本召回: {text_only}个")
             self.logger.debug(f"   🎯 仅向量召回: {vector_only}个")
@@ -1044,7 +1133,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 )
 
                 self.logger.debug(f"📄 RRF排名#{i} - 文档ID: {result['id']}")
-                
+
                 # 显示RRF计算详情
                 rrf_detail = f"RRF分数: {result['rrf_score']:.6f}"
                 if result["text_rank"] and result["vector_rank"]:
@@ -1053,31 +1142,42 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                     rrf_detail += f" (仅文本排名: {result['text_rank']})"
                 else:
                     rrf_detail += f" (仅向量排名: {result['vector_rank']})"
-                
+
                 self.logger.debug(f"   🔢 {rrf_detail}")
-                
+
                 # 显示原始分数
                 if result["text_score"] > 0 and result["vector_score"] > 0:
-                    self.logger.debug(f"   📊 原始分数 - 文本: {result['text_score']:.4f}, 向量: {result['vector_score']:.4f}")
+                    self.logger.debug(
+                        f"   📊 原始分数 - 文本: {result['text_score']:.4f}, 向量: {result['vector_score']:.4f}"
+                    )
                 elif result["text_score"] > 0:
-                    self.logger.debug(f"   📊 原始分数 - 文本: {result['text_score']:.4f}")
+                    self.logger.debug(
+                        f"   📊 原始分数 - 文本: {result['text_score']:.4f}"
+                    )
                 else:
-                    self.logger.debug(f"   📊 原始分数 - 向量: {result['vector_score']:.4f}")
-                
+                    self.logger.debug(
+                        f"   📊 原始分数 - 向量: {result['vector_score']:.4f}"
+                    )
+
                 # 显示命中词汇（仅文本召回有）
-                if result["recall_source"] in ["text", "hybrid"] and result["highlights"]:
+                if (
+                    result["recall_source"] in ["text", "hybrid"]
+                    and result["highlights"]
+                ):
                     terms_info = []
                     for field, terms in result["highlights"].items():
                         if terms and isinstance(terms, dict):
-                            relevant_terms = terms.get('relevant_terms', [])
+                            relevant_terms = terms.get("relevant_terms", [])
                             if relevant_terms:  # 只有当有相关词汇时才添加
-                                terms_info.append(f"{field}: {', '.join(relevant_terms)}")
+                                terms_info.append(
+                                    f"{field}: {', '.join(relevant_terms)}"
+                                )
                         elif terms and isinstance(terms, list):
                             terms_info.append(f"{field}: {', '.join(terms)}")
-                    
+
                     if terms_info:
                         self.logger.debug(f"   🎯 命中词汇: {', '.join(terms_info)}")
-                
+
                 self.logger.debug(f"   🏷️  召回方式: {result['recall_source']}")
                 self.logger.debug(f"   📝 内容: {content_preview}")
 
@@ -1119,11 +1219,13 @@ class ESRetrieverComponent(BaseRetrieverComponent):
 
             if self.debug:
                 matched_terms = self._extract_matched_terms(highlights, query)
-                terms_info = ", ".join([
-                    f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
-                    for field, terms in matched_terms.items()
-                    if terms
-                ])
+                terms_info = ", ".join(
+                    [
+                        f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
+                        for field, terms in matched_terms.items()
+                        if terms
+                    ]
+                )
                 self.logger.debug(
                     f"📝 文本召回文档: {doc_id}, 分数: {score:.4f}, 命中词: {terms_info or '无'}"
                 )
@@ -1138,17 +1240,20 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 results_map[doc_id]["recall_source"] = "hybrid"
                 results_map[doc_id]["vector_score"] = score
                 results_map[doc_id]["hybrid_score"] = (
-                    results_map[doc_id]["text_score"] * self.text_weight + score * self.vector_weight
+                    results_map[doc_id]["text_score"] * self.text_weight
+                    + score * self.vector_weight
                 )
 
                 if self.debug:
                     highlights = highlights_map.get(doc_id, {})
                     matched_terms = self._extract_matched_terms(highlights, query)
-                    terms_info = ", ".join([
-                        f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
-                        for field, terms in matched_terms.items()
-                        if terms
-                    ])
+                    terms_info = ", ".join(
+                        [
+                            f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
+                            for field, terms in matched_terms.items()
+                            if terms
+                        ]
+                    )
                     self.logger.debug(
                         f"🎯 混合召回文档: {doc_id}, 文本分数: {results_map[doc_id]['text_score']:.4f}, 向量分数: {score:.4f}, 混合分数: {results_map[doc_id]['hybrid_score']:.4f}, 命中词: {terms_info or '无'}"
                     )
@@ -1214,11 +1319,13 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                     highlights = highlights_map.get(result["id"], {})
                     matched_terms = self._extract_matched_terms(highlights, query)
                     if matched_terms:
-                        terms_info = ", ".join([
-                            f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
-                            for field, terms in matched_terms.items()
-                            if terms
-                        ])
+                        terms_info = ", ".join(
+                            [
+                                f"{field}: {', '.join(terms['relevant_terms']) if isinstance(terms, dict) else str(terms)}"
+                                for field, terms in matched_terms.items()
+                                if terms
+                            ]
+                        )
                         if terms_info:
                             self.logger.debug(f"   🎯 命中词汇: {terms_info}")
 

@@ -1,5 +1,36 @@
 # ES搜索Pipeline配置
 components:
+  # 🆕 添加查询重写组件
+  query_rewriter:
+    type: "query"
+    name: "expansion"
+    config:
+      expansion_type: "rewrite"  # 查询重写模式
+      temperature: 0.3
+      max_retries: 3
+      debug: true
+  
+  # 🆕 添加HyDE组件
+  hyde_expander:
+    type: "query"
+    name: "expansion"
+    config:
+      expansion_type: "hyde"  # HyDE模式
+      temperature: 0.7
+      max_retries: 3
+      debug: true
+  
+  # 🆕 添加多查询扩展组件（可选）
+  multi_query_expander:
+    type: "query"
+    name: "expansion"
+    config:
+      expansion_type: "multi_query"  # 多查询扩展模式
+      num_queries: 3  # 生成3个相关查询
+      temperature: 0.5
+      max_retries: 3
+      debug: true
+
   es_retriever:
     type: "retriever"
     name: "elasticsearch"
@@ -28,6 +59,11 @@ components:
         enable_score_normalization: true
         diversity_threshold: 0.8
         max_small_chunks_per_big: 5
+        
+        # 🆕 新增：差异化检索策略配置
+        enable_differential_retrieval: true
+        vector_chunk_level: 2    # 向量检索使用small chunk (level 2)
+        text_chunk_level: 0      # BM25检索使用big chunk (level 0)
       
       # RRF融合配置
       fusion_method: "rrf"
@@ -35,10 +71,10 @@ components:
       text_weight: 1.0
       vector_weight: 1.2
       
-      # 🔧 修改搜索字段配置，添加 content_jieba
+      # 🔧 修改搜索字段配置，移除空的 content_jieba 字段
       search_fields: {
         "content": 2.0,
-        "content_jieba": 2.5,  # 给jieba分词字段更高权重
+        # "content_jieba": 2.5,  # 注释掉空字段
         "metadata.file_path": 1.2,
         "metadata.title": 1.5   # 如果有title字段也加上
       }
@@ -60,10 +96,6 @@ components:
           content:
             fragment_size: 200
             number_of_fragments: 2
-          content_jieba:
-            fragment_size: 200
-            number_of_fragments: 2
-            analyzer: "ik_search_analyzer"  # 明确指定分析器
           "metadata.file_path":
             fragment_size: 100
             number_of_fragments: 1
@@ -92,12 +124,24 @@ components:
     type: "generator"
     name: "llm"
 
-# 流程定义
+# 🆕 更新流程定义，添加查询处理步骤
 flow:
+  # 方案1：使用查询重写
+  query_rewriter: ["es_retriever"]
+  
+  # 方案2：使用HyDE（注释掉方案1，启用方案2）
+  # hyde_expander: ["es_retriever"]
+  
+  # 方案3：使用多查询扩展（注释掉方案1和2，启用方案3）
+  # multi_query_expander: ["es_retriever"]
+  
   es_retriever: ["openai_reranker"]
   openai_reranker: ["openai_generator"]
   openai_generator: []
 
-# 入口点
+# 🆕 更新入口点
 entry_points:
-  search: "es_retriever"
+  # 根据选择的方案更新入口点
+  search: "query_rewriter"  # 方案1：查询重写
+  # search: "hyde_expander"     # 方案2：HyDE
+  # search: "multi_query_expander"  # 方案3：多查询扩展

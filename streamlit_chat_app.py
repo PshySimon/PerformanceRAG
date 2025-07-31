@@ -309,7 +309,7 @@ def format_document_sources(documents: List[Dict[str, Any]]) -> List[Dict[str, A
         keywords = []
         if 'highlights' in doc:
             highlights = doc['highlights']
-            for field, terms_info in highlights.items():
+            for _, terms_info in highlights.items():
                 if isinstance(terms_info, dict) and 'relevant_terms' in terms_info:
                     keywords.extend(terms_info['relevant_terms'])
         
