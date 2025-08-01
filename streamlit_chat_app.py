@@ -47,7 +47,11 @@ def init_pipeline():
     """初始化pipeline（使用缓存）"""
     try:
         logger.info("初始化ES搜索Pipeline...")
-        pipeline = create_pipeline("es_search_pipeline")
+        # 🆕 强制清除factory缓存
+        from rag.pipeline.factory import clear_cache
+        clear_cache()
+        
+        pipeline = create_pipeline("es_search_pipeline", use_cache=False)  # 🆕 禁用缓存
         logger.info("Pipeline初始化完成")
         return pipeline, True
     except Exception as e:
@@ -59,16 +63,25 @@ def search_with_pipeline(
     query: str, top_k: int, search_type: str, show_intermediate: bool = False
 ) -> Dict[str, Any]:
     """使用pipeline进行搜索"""
+    logger.info(f"🚀 开始执行search_with_pipeline，查询: {query}")
     try:
+        # 获取配置文件中定义的entry_point
+        entry_points = st.session_state.pipeline.get_entry_points()
+        default_entry_point = entry_points.get("search", "query_rewriter")
+        
+        # 🆕 改为INFO级别，更容易看到
+        logger.info(f"📋 Pipeline entry_points: {entry_points}")
+        logger.info(f"🎯 使用的entry_point: {default_entry_point}")
+        
         if show_intermediate:
             result = st.session_state.pipeline.run_with_intermediate_results(
                 {"query": query, "top_k": top_k, "search_type": search_type},
-                entry_point="es_retriever",
+                entry_point=default_entry_point,  # 使用配置文件中的entry_point
             )
         else:
             result = st.session_state.pipeline.run(
                 {"query": query, "top_k": top_k, "search_type": search_type},
-                entry_point="es_retriever",
+                entry_point=default_entry_point,  # 使用配置文件中的entry_point
             )
         return result
     except Exception as e:
@@ -86,6 +99,13 @@ def search_with_pipeline_stream(
             yield {"error": "Pipeline未初始化"}
             return
 
+        # 获取配置文件中定义的entry_point
+        entry_points = pipeline.get_entry_points()
+        default_entry_point = entry_points.get("search", "query_rewriter")
+        
+        # 添加调试日志
+        logger.info(f"🎯 流式搜索使用的entry_point: {default_entry_point}")
+
         # 1. 开始检索阶段
         yield {
             "current_step": "retrieval",
@@ -94,10 +114,10 @@ def search_with_pipeline_stream(
         }
         time.sleep(0.5)
 
-        # 执行实际的pipeline
+        # 执行实际的pipeline - 使用动态获取的entry_point
         result = pipeline.run(
             {"query": query, "top_k": top_k, "search_type": search_type},
-            entry_point="es_retriever",
+            entry_point=default_entry_point,  # 🔧 修复：使用配置文件中的entry_point
         )
 
         if "error" in result:

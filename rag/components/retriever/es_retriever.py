@@ -17,6 +17,17 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         if Elasticsearch is None:
             raise ImportError("请安装elasticsearch包: pip install elasticsearch")
 
+        # 向量检索相似度阈值（余弦相似度，0-1范围）
+        self.vector_similarity_threshold = config.get(
+            "vector_similarity_threshold", 0.1
+        )
+        # 为了向后兼容，保留原参数名
+        if "similarity_threshold" in config:
+            self.vector_similarity_threshold = config["similarity_threshold"]
+
+        # BM25文本检索分数阈值（BM25分数，通常>1）
+        self.bm25_score_threshold = config.get("bm25_score_threshold", 20.0)
+
         # 优先检索的chunk_level
         self.preferred_chunk_level = config.get("preferred_chunk_level")
 
@@ -35,6 +46,8 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         # Small2Big检索配置
         self.enable_small2big = config.get("enable_small2big", False)
         small2big_config = config.get("small2big_config", {})
+        # 保存small2big_config为实例属性
+        self.small2big_config = small2big_config
         self.small_chunk_top_k = small2big_config.get("small_chunk_top_k", 20)
         self.final_top_k = small2big_config.get("final_top_k", 10)
         self.expansion_strategy = small2big_config.get(
@@ -317,13 +330,40 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         """将Small Chunk扩展到Big Chunk"""
         big_chunk_groups = {}
 
-        for small_chunk in small_chunks:
+        if self.debug:
+            self.logger.debug(
+                f"🔄 开始扩展 {len(small_chunks)} 个small chunks到big chunks"
+            )
+
+        for i, small_chunk in enumerate(small_chunks):
             metadata = small_chunk.get("metadata", {})
+            chunk_level = metadata.get("chunk_level", 0)
+
+            if self.debug:
+                self.logger.debug(f"📋 处理small chunk #{i+1}: {small_chunk['id']}")
+                self.logger.debug(f"   📊 分数: {small_chunk['score']:.6f}")
+                self.logger.debug(f"   🏷️  元数据: {metadata}")
 
             if self.expansion_strategy == "parent_expansion":
                 # 通过parent_id扩展
                 parent_id = metadata.get("parent_id")
-                if parent_id:
+                if self.debug:
+                    self.logger.debug(f"   🔗 parent_id: {parent_id}")
+
+                # Level 0 chunk 本身就是 big chunk，无需扩展
+                if chunk_level == 0:
+                    # Level 0 chunk本身就是big chunk
+                    big_chunk_groups[small_chunk["id"]] = {
+                        "small_chunks": [small_chunk],
+                        "big_chunk_data": small_chunk,  # 使用自身
+                        "max_score": small_chunk["score"],
+                        "avg_score": small_chunk["score"],
+                    }
+                    if self.debug:
+                        self.logger.debug(
+                            f"✅ Level 0 chunk {small_chunk['id']} 本身就是big chunk，直接使用"
+                        )
+                elif parent_id:
                     if parent_id not in big_chunk_groups:
                         big_chunk_groups[parent_id] = {
                             "small_chunks": [],
@@ -331,15 +371,42 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                             "avg_score": 0,
                             "big_chunk_data": None,
                         }
+                        if self.debug:
+                            self.logger.debug(f"   ✅ 创建新的big chunk组: {parent_id}")
 
                     big_chunk_groups[parent_id]["small_chunks"].append(small_chunk)
                     big_chunk_groups[parent_id]["max_score"] = max(
                         big_chunk_groups[parent_id]["max_score"], small_chunk["score"]
                     )
+                    if self.debug:
+                        self.logger.debug(
+                            f"   ✅ 添加到big chunk组 {parent_id}，当前最高分数: {big_chunk_groups[parent_id]['max_score']:.6f}"
+                        )
+                else:
+                    # 降级策略：使用small chunk本身
+                    if self.debug:
+                        self.logger.warning(
+                            f"⚠️ Level {chunk_level} chunk {small_chunk['id']} 缺少parent_id，降级使用small chunk"
+                        )
+
+                    fallback_id = f"fallback_{small_chunk['id']}"
+                    big_chunk_groups[fallback_id] = {
+                        "small_chunks": [small_chunk],
+                        "big_chunk_data": {
+                            "id": fallback_id,
+                            "content": small_chunk["content"],
+                            "metadata": {**metadata, "is_fallback": True},
+                        },
+                        "max_score": small_chunk["score"],
+                        "avg_score": small_chunk["score"],
+                    }
 
             elif self.expansion_strategy == "root_expansion":
                 # 通过root_id扩展到最大粒度
                 root_id = metadata.get("root_id")
+                if self.debug:
+                    self.logger.debug(f"   🔗 root_id: {root_id}")
+
                 if root_id:
                     if root_id not in big_chunk_groups:
                         big_chunk_groups[root_id] = {
@@ -348,21 +415,69 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                             "avg_score": 0,
                             "big_chunk_data": None,
                         }
+                        if self.debug:
+                            self.logger.debug(f"   ✅ 创建新的big chunk组: {root_id}")
 
                     big_chunk_groups[root_id]["small_chunks"].append(small_chunk)
                     big_chunk_groups[root_id]["max_score"] = max(
                         big_chunk_groups[root_id]["max_score"], small_chunk["score"]
                     )
+                    if self.debug:
+                        self.logger.debug(
+                            f"   ✅ 添加到big chunk组 {root_id}，当前最高分数: {big_chunk_groups[root_id]['max_score']:.6f}"
+                        )
+                else:
+                    if self.debug:
+                        self.logger.warning(
+                            f"   ❌ small chunk {small_chunk['id']} 缺少root_id，将被丢弃"
+                        )
+
+        if self.debug:
+            self.logger.debug(
+                f"📊 扩展统计: 创建了 {len(big_chunk_groups)} 个big chunk组"
+            )
+            for big_chunk_id, group_data in big_chunk_groups.items():
+                self.logger.debug(
+                    f"   📦 Big chunk组 {big_chunk_id}: {len(group_data['small_chunks'])} 个small chunks"
+                )
 
         # 获取Big Chunk的完整内容
+        successful_groups = 0
         for big_chunk_id, group_data in big_chunk_groups.items():
+            if self.debug:
+                self.logger.debug(f"🔍 正在获取big chunk内容: {big_chunk_id}")
+
             big_chunk_content = self._get_big_chunk_content(big_chunk_id)
             if big_chunk_content:
                 group_data["big_chunk_data"] = big_chunk_content
+                successful_groups += 1
 
                 # 计算平均分数
                 scores = [chunk["score"] for chunk in group_data["small_chunks"]]
                 group_data["avg_score"] = sum(scores) / len(scores)
+
+                if self.debug:
+                    self.logger.debug(
+                        f"   ✅ 成功获取big chunk {big_chunk_id}，包含 {len(group_data['small_chunks'])} 个small chunks"
+                    )
+                    self.logger.debug(
+                        f"   📊 分数统计 - 最高: {group_data['max_score']:.6f}, 平均: {group_data['avg_score']:.6f}"
+                    )
+            else:
+                if self.debug:
+                    self.logger.warning(
+                        f"   ❌ 无法获取big chunk {big_chunk_id} 的内容，该组将被丢弃"
+                    )
+                    # 显示被丢弃的small chunks
+                    for small_chunk in group_data["small_chunks"]:
+                        self.logger.warning(
+                            f"      🗑️  丢弃small chunk: {small_chunk['id']} (分数: {small_chunk['score']:.6f})"
+                        )
+
+        if self.debug:
+            self.logger.debug(
+                f"🎯 扩展完成: {successful_groups}/{len(big_chunk_groups)} 个big chunk组成功获取内容"
+            )
 
         return big_chunk_groups
 
@@ -444,21 +559,28 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         query_embedding = self.embedding_client.embed_text(query)
 
         # 检查是否启用差异化检索
-        enable_differential = self.small2big_config.get("enable_differential_retrieval", False)
-        
+        enable_differential = self.small2big_config.get(
+            "enable_differential_retrieval", False
+        )
+
         if enable_differential:
             # 差异化检索：向量检索使用small chunk，文本检索使用big chunk
             vector_chunk_level = self.small2big_config.get("vector_chunk_level", 2)
             text_chunk_level = self.small2big_config.get("text_chunk_level", 0)
-            
+
+            # 🔧 修正：为不同检索类型构建独立的过滤条件
             # 向量检索过滤条件（small chunk）
-            vector_filter_clauses = [filter_clause, {"term": {"metadata.chunk_level": vector_chunk_level}}]
-            
+            vector_filter_clauses = [
+                {"term": {"metadata.chunk_level": vector_chunk_level}}
+            ]
+
             # 文本检索过滤条件（big chunk）
-            text_filter_clauses = [filter_clause, {"term": {"metadata.chunk_level": text_chunk_level}}]
-            
+            text_filter_clauses = [{"term": {"metadata.chunk_level": text_chunk_level}}]
+
             if self.debug:
-                self.logger.info(f"🔄 差异化检索策略：向量检索chunk_level={vector_chunk_level}，文本检索chunk_level={text_chunk_level}")
+                self.logger.info(
+                    f"🔄 差异化检索策略：向量检索chunk_level={vector_chunk_level}，文本检索chunk_level={text_chunk_level}"
+                )
         else:
             # 传统方式：使用相同的过滤条件
             vector_filter_clauses = text_filter_clauses = [filter_clause]
@@ -466,18 +588,36 @@ class ESRetrieverComponent(BaseRetrieverComponent):
         # 文本检索部分（BM25 + big chunk）
         should_queries = []
         for field, boost in self.search_fields.items():
-            should_queries.append({
-                "match": {
-                    field: {
-                        "query": query,
-                        "boost": boost,
-                        "analyzer": self.search_analyzer,
+            should_queries.append(
+                {
+                    "match": {
+                        field: {
+                            "query": query,
+                            "boost": boost,
+                            "analyzer": self.search_analyzer,
+                        }
                     }
                 }
-            })
+            )
+
+        # 🆕 添加高亮字段配置
+        highlight_fields = self._build_highlight_fields()
 
         text_search_body = {
-            "query": {"bool": {"should": should_queries, "filter": text_filter_clauses}},
+            "query": {
+                "bool": {
+                    "should": should_queries,
+                    "filter": text_filter_clauses,
+                    "minimum_should_match": 1,
+                }
+            },
+            # 🆕 添加高亮配置
+            "highlight": {
+                "fields": highlight_fields,
+                "require_field_match": self.default_highlight_settings[
+                    "require_field_match"
+                ],
+            },
             "size": top_k * 2,
         }
 
@@ -493,10 +633,69 @@ class ESRetrieverComponent(BaseRetrieverComponent):
             "size": top_k * 2,
         }
 
+        if self.debug:
+            self.logger.debug(f"🔍 执行文本检索查询体: {text_search_body}")
+            self.logger.debug(f"🔍 执行向量检索查询体: {vector_search_body}")
+
         # 执行检索
         text_response = self.client.search(index=self.index_name, body=text_search_body)
-        vector_response = self.client.search(index=self.index_name, body=vector_search_body)
+        vector_response = self.client.search(
+            index=self.index_name, body=vector_search_body
+        )
 
+        if self.debug:
+            # 打印原始检索结果统计
+            text_total = text_response["hits"]["total"]
+            vector_total = vector_response["hits"]["total"]
+            text_hits = len(text_response["hits"]["hits"])
+            vector_hits = len(vector_response["hits"]["hits"])
+
+            if isinstance(text_total, dict):
+                text_total_count = text_total.get("value", 0)
+            else:
+                text_total_count = text_total
+
+            if isinstance(vector_total, dict):
+                vector_total_count = vector_total.get("value", 0)
+            else:
+                vector_total_count = vector_total
+
+            self.logger.debug(
+                f"📊 文本检索原始结果: 总命中={text_total_count}, 返回={text_hits}"
+            )
+            self.logger.debug(
+                f"📊 向量检索原始结果: 总命中={vector_total_count}, 返回={vector_hits}"
+            )
+
+            # 打印文本检索的前几个结果
+            if text_hits > 0:
+                self.logger.debug("📝 文本检索前3个结果:")
+                for i, hit in enumerate(text_response["hits"]["hits"][:3]):
+                    self.logger.debug(
+                        f"  {i+1}. ID={hit['_id']}, Score={hit['_score']:.4f}, chunk_level={hit['_source'].get('metadata', {}).get('chunk_level', 'N/A')}"
+                    )
+            else:
+                self.logger.debug("❌ 文本检索无结果！")
+
+            # 打印向量检索的前几个结果
+            if vector_hits > 0:
+                self.logger.debug("🎯 向量检索前3个结果:")
+                for i, hit in enumerate(vector_response["hits"]["hits"][:3]):
+                    self.logger.debug(
+                        f"  {i+1}. ID={hit['_id']}, Score={hit['_score']:.4f}, chunk_level={hit['_source'].get('metadata', {}).get('chunk_level', 'N/A')}"
+                    )
+            else:
+                self.logger.debug("❌ 向量检索无结果！")
+
+            # 使用现有的融合方法
+            if self.fusion_method == "rrf":
+                return self._merge_hybrid_results_with_rrf(
+                    text_response, vector_response, query, top_k
+                )
+            else:
+                return self._merge_hybrid_results_with_highlights(
+                    text_response, vector_response, query, top_k
+                )
         # 使用现有的融合方法
         if self.fusion_method == "rrf":
             return self._merge_hybrid_results_with_rrf(
@@ -732,8 +931,15 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 "highlights": matched_terms,  # 添加高亮信息到结果中
             }
 
-            # 过滤低分结果
-            if result["score"] >= self.similarity_threshold:
+            # 过滤低分结果 - 针对不同检索类型使用不同阈值
+            if search_type == "文本检索":
+                # BM25文本检索使用BM25分数阈值
+                threshold = self.bm25_score_threshold
+            else:
+                # 向量检索使用余弦相似度阈值
+                threshold = self.vector_similarity_threshold
+
+            if result["score"] >= threshold:
                 results.append(result)
 
                 if self.debug:
@@ -917,7 +1123,7 @@ class ESRetrieverComponent(BaseRetrieverComponent):
                 }
 
         text_search_body = {
-            "query": {"bool": {"should": should_queries}},
+            "query": {"bool": {"should": should_queries, "minimum_should_match": 1}},
             "highlight": {"fields": highlight_fields},
             "size": top_k * 2,
         }
@@ -1103,11 +1309,24 @@ class ESRetrieverComponent(BaseRetrieverComponent):
 
         # 取top_k并应用相似度阈值过滤
         final_results = []
-        for result in rrf_results[:top_k]:
+        for i, result in enumerate(rrf_results[:top_k]):
+            if self.debug:
+                self.logger.debug(
+                    f"🔍 检查RRF排名#{i+1} 文档 {result['id']}: RRF分数={result['rrf_score']:.6f}"
+                )
+
             # 对于RRF，我们使用更宽松的阈值策略
-            # 因为RRF分数的尺度与原始分数不同
             if result["rrf_score"] > 0:  # RRF分数大于0即表示有意义
                 final_results.append(result)
+                if self.debug:
+                    self.logger.debug(
+                        f"✅ 文档 {result['id']} 通过RRF过滤，加入最终结果"
+                    )
+            else:
+                if self.debug:
+                    self.logger.debug(
+                        f"❌ 文档 {result['id']} RRF分数={result['rrf_score']:.6f} <= 0，被过滤"
+                    )
 
         if self.debug:
             self.logger.debug("📊 RRF混合检索结果统计:")
@@ -1183,9 +1402,98 @@ class ESRetrieverComponent(BaseRetrieverComponent):
 
         return final_results
 
-    def _merge_hybrid_results_with_highlights(
-        self, text_response, vector_response, query: str, top_k: int
-    ) -> List[Dict[str, Any]]:
+    def _merge_hybrid_results_with_highlights(self, text_response, vector_response, query: str, top_k: int) -> List[Dict[str, Any]]:
+        """合并混合检索结果并标记来源（包含高亮信息）- 加权融合方法"""
+
+    def process(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """处理输入数据 - 支持多查询检索"""
+        if "query" not in data:
+            raise ValueError("输入数据必须包含 'query' 字段")
+        
+        # 检查是否有扩展查询
+        expanded_queries = data.get("expanded_queries", [])
+        original_query = data["query"]
+        top_k = data.get("top_k", self.top_k)
+        
+        if expanded_queries and len(expanded_queries) > 1:
+            # 多查询检索
+            if self.debug:
+                self.logger.info(f"🔍 执行多查询检索，共 {len(expanded_queries)} 个查询")
+                for i, q in enumerate(expanded_queries, 1):
+                    self.logger.info(f"   查询 {i}: {q}")
+            
+            all_results = []
+            for i, query in enumerate(expanded_queries):
+                if self.debug:
+                    self.logger.info(f"🔍 执行第 {i+1} 个查询: {query}")
+                
+                results = self.retrieve(query, top_k)
+                
+                # 为每个结果添加查询来源信息
+                for result in results:
+                    result['query_source'] = f"query_{i+1}"
+                    result['source_query'] = query
+                
+                all_results.extend(results)
+                
+                if self.debug:
+                    self.logger.info(f"   ✅ 查询 {i+1} 返回 {len(results)} 个结果")
+            
+            # 去重和重排序
+            unique_results = self._deduplicate_and_merge_results(all_results, top_k)
+            
+            if self.debug:
+                self.logger.info(f"🎯 多查询检索完成，去重后返回 {len(unique_results)} 个结果")
+            
+            return {
+                "documents": unique_results,
+                "query": original_query,
+                "expanded_queries": expanded_queries,
+                "result_count": len(unique_results),
+                "metadata": {
+                    "component": self.name,
+                    "retriever_type": self.__class__.__name__,
+                    "top_k": top_k,
+                    "multi_query": True,
+                    "num_queries": len(expanded_queries),
+                },
+            }
+        else:
+            # 单查询检索（原有逻辑）
+            results = self.retrieve(original_query, top_k)
+            
+            return {
+                "documents": results,
+                "query": original_query,
+                "result_count": len(results),
+                "metadata": {
+                    "component": self.name,
+                    "retriever_type": self.__class__.__name__,
+                    "top_k": top_k,
+                    "multi_query": False,
+                },
+            }
+    
+    def _deduplicate_and_merge_results(self, all_results: List[Dict[str, Any]], top_k: int) -> List[Dict[str, Any]]:
+        """去重并合并多查询结果"""
+        seen_ids = set()
+        unique_results = []
+        
+        # 按分数排序
+        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        
+        for result in all_results:
+            doc_id = result.get('id')
+            if doc_id not in seen_ids:
+                seen_ids.add(doc_id)
+                unique_results.append(result)
+                
+                if len(unique_results) >= top_k:
+                    break
+        
+        return unique_results
+
+    def _merge_hybrid_results_with_highlights(self, text_response, vector_response, query: str, top_k: int) -> List[Dict[str, Any]]:
         """合并混合检索结果并标记来源（包含高亮信息）- 加权融合方法"""
         results_map = {}
         highlights_map = {}  # 存储高亮信息

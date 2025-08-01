@@ -43,7 +43,10 @@ components:
       use_ssl: true
       verify_certs: false
       search_type: "hybrid"
-      similarity_threshold: 0.75
+      # 恢复正常阈值
+      similarity_threshold: 0.75  # 从0.1改回0.75
+      # 🆕 添加BM25文本检索专用阈值
+      bm25_score_threshold: 20
       
       # Small2Big检索配置
       enable_small2big: true
@@ -53,7 +56,7 @@ components:
         big_chunk_size: 1536
         expansion_strategy: "parent_expansion"
         small_chunk_top_k: 20
-        final_top_k: 10
+        final_top_k: 5
         similarity_threshold_small: 0.6
         score_fusion_method: "max"
         enable_score_normalization: true
@@ -105,7 +108,7 @@ components:
         model: "models/bge-m3"
         field_name: "content_vector"
         api_key: "123456"
-        api_base: "http://workspace.featurize.cn:38819/v1"
+        api_base: "http://workspace.featurize.cn:54253/v1"
         batch_size: 10
         timeout: 30
       debug: true
@@ -115,7 +118,7 @@ components:
     name: "openai"
     config:
       api_key: "123456"
-      base_url: "http://workspace.featurize.cn:62294/v1"
+      base_url: "http://workspace.featurize.cn:49857/v1"
       model: "models/bge-reranker-v2-m3"
       top_k: 10
       debug: true
